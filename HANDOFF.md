@@ -108,7 +108,7 @@ WindowTilingServiceImpl   Shizuku UserService (shell UID)
                           launchInFreeform / resizeTask / getVisibleTaskInfo
 ```
 
-`engine/UsableArea.kt`의 `usableArea(context, config)`가 "scene의 기준 좌표계" 계산을 MainActivity/PresetBuilderDialog/TilingAccessibilityService가 공유하도록 뽑아낸 함수입니다 — 캡처와 적용이 서로 다른 사각형을 기준으로 삼으면 안 되므로.
+`engine/UsableArea.kt`의 `usableArea(context)`가 "scene의 기준 좌표계" 계산을 MainActivity/PresetBuilderDialog/TilingAccessibilityService가 공유하도록 뽑아낸 함수입니다 — 캡처와 적용이 서로 다른 사각형을 기준으로 삼으면 안 되므로. `WindowManager.getMaximumWindowMetrics()` + 실제 `WindowInsets`로 상태바/네비바를 계산합니다 (예전엔 `TilingConfig.statusBarHeight`/`navBarHeight`라는 고정 100px 추정치였다가, 회전 시 여백이 남는 버그로 이어져 실제 인셋 조회로 교체함 — 8번 참고).
 
 ### 핵심 설계 결정 (바꾸기 전에 이유를 읽으세요)
 
@@ -256,6 +256,8 @@ adb logcat -d | ggrep 'TilingWM'
 - `TilingAccessibilityService.refreshWidget()` 추가 — MainActivity에서 scene을 만들거나 이름 바꾸거나 지우면, 열려 있는 위젯 패널도 갱신되도록
 - `AndroidManifest.xml`에 `<queries>` 추가 (5번 표 참고 — 빌드 후 리뷰 중 발견한 실제 버그)
 - ✅ **scene 전환 시 이전 창 정리** — 사용자가 실사용 중 리포트한 버그. 네 번의 시도 끝에 Samsung의 `IMultiTaskingBinder.minimizeTaskById()`(네이티브 캡션바 `-` 버튼과 동일 경로)로 정착, `dumpsys`의 `visible=false` 확인까지 포함해 실기기 검증 완료 (4·5·7번 참고). **`moveTaskToBack`, 화면 밖 파킹, `wm shell desktopmode minimizeAll`은 전부 시도했다가 실패로 확인되어 폐기 — 되살리지 마세요** (5번 표)
+- ✅ **회전 시 창 배치 재계산** — 회전해도 화면 밖으로 안 깨지도록 `TilingAccessibilityService.onConfigurationChanged()`(실제 orientation flip일 때만) → `SceneManager.reapplyBounds()`(relaunch 없이 좌표만 재계산·재적용)로 처리. **사용자가 직접 기기를 돌려서 검증함.** 단, `MasterStackLayout` 계열 프리셋은 만들어질 때 방향의 topology(세로: master 왼쪽 / 가로: master 위쪽)가 비율로 고정되므로, 회전해도 안 깨지긴 하지만 반대 방향에 최적화된 배치로 자동 전환되지는 않음 — 다음 개선 후보
+- ✅ **상/하단 여백 제거** — `TilingConfig.statusBarHeight`/`navBarHeight`가 실제 크기가 아니라 고정 추정치(100px)였던 게 원인. `usableArea()`를 `WindowManager.getMaximumWindowMetrics()` + `WindowInsets.Type.systemBars()`로 실제 인셋을 읽도록 재작성 (`getCurrentWindowMetrics()`가 아님 — 그건 호출하는 창 자신의 크기라, MainActivity가 작은 freeform 창일 때 잘못된 값이 나옴). 이 두 필드의 유일한 소비자였던 `TilingEngine.kt`(실시간 타일링 시절 죽은 코드)와 그게 쓰던 `LayoutBounds`/`TaskInfo` 모델도 같이 삭제. **사용자가 직접 검증함.**
 
 ---
 
