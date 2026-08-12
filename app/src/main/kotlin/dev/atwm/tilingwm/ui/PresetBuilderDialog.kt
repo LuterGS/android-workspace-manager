@@ -167,7 +167,7 @@ class PresetBuilderDialog(
     }
 
     private fun save(packages: List<String>, name: String) {
-        val area = usableArea(activity, config)
+        val area = usableArea(activity)
         val orientation = activity.resources.configuration.orientation
         val scene = preset.toScene(name, packages, orientation, area)
         if (scene == null) {

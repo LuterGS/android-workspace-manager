@@ -1,6 +1,7 @@
 package dev.atwm.tilingwm.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -67,12 +68,44 @@ class TilingAccessibilityService : AccessibilityService(), FloatingWidget.Callba
      */
     private val lastTaskIdByPackage = mutableMapOf<String, Int>()
 
+    /** Orientation as of the last check, so onConfigurationChanged() reacts only
+     *  to an actual portrait/landscape flip, not every config change (density,
+     *  locale, ...) the system happens to deliver. */
+    private var lastOrientation = Configuration.ORIENTATION_UNDEFINED
+
     override fun onServiceConnected() {
         instance = this
         store = SceneStore(this)
         scenes = SceneManager({ serviceConnection?.service }, handler)
         widget = FloatingWidget(this, this)
+        lastOrientation = resources.configuration.orientation
         applyEnabledState()
+    }
+
+    /**
+     * A [Scene]'s window bounds are fractions of the usable area precisely so
+     * they survive the display changing shape (see HANDOFF §4) — but only a
+     * *newly applied* scene picks that up automatically. Windows already sitting
+     * on screen keep whatever absolute pixel bounds they were last given, and
+     * rotating leaves them wherever that no longer makes sense. Re-applying the
+     * active scene's bounds against the post-rotation area fixes that; nothing
+     * gets relaunched, so this can't steal focus from whatever the user is doing
+     * mid-rotation the way a full apply() would.
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (newConfig.orientation == lastOrientation) return
+        lastOrientation = newConfig.orientation
+
+        val scene = activeScene ?: return
+        if (serviceConnection?.service == null) return
+        // The rotation animation needs a moment to actually finish, or this
+        // reads back a usableArea that's still mid-transition.
+        handler.postDelayed({
+            if (serviceConnection?.service != null) {
+                scenes.reapplyBounds(scene, usableArea(this))
+            }
+        }, 200)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -101,7 +134,7 @@ class TilingAccessibilityService : AccessibilityService(), FloatingWidget.Callba
 
         lastTaskIdByPackage[window.packageName] = taskId
         val svc = serviceConnection?.service ?: return
-        val bounds = window.toBounds(usableArea(this, config))
+        val bounds = window.toBounds(usableArea(this))
         svc.resizeTask(taskId, bounds.left, bounds.top, bounds.right, bounds.bottom)
         Log.d(TAG, "auto-restored '${window.packageName}' to its pane in '${scene.name}' (task $taskId)")
     }
@@ -132,7 +165,7 @@ class TilingAccessibilityService : AccessibilityService(), FloatingWidget.Callba
         }
 
         val name = store.nextAvailableName()
-        val scene = scenes.capture(name, usableArea(this, config), config.excludedPackages)
+        val scene = scenes.capture(name, usableArea(this), config.excludedPackages)
         if (scene == null) {
             toast("No freeform windows to save")
             return
@@ -162,7 +195,7 @@ class TilingAccessibilityService : AccessibilityService(), FloatingWidget.Callba
         // task id. Only a later relaunch, with a different task id, acts again.
         activeScene = scene
         lastTaskIdByPackage.clear()
-        scenes.apply(scene, usableArea(this, config), config.excludedPackages)
+        scenes.apply(scene, usableArea(this), config.excludedPackages)
     }
 
     override fun onDeleteScene(name: String) {

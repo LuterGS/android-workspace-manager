@@ -8,8 +8,6 @@ data class TilingConfig(
      * the current stack — means "split evenly".
      */
     val stackRatios: List<Float> = emptyList(),
-    val statusBarHeight: Int = 100,
-    val navBarHeight: Int = 100,
     val windowGap: Int = 0,
     val excludedPackages: Set<String> = setOf(
         "com.android.systemui",

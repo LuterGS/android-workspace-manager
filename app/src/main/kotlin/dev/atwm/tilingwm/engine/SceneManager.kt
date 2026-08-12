@@ -160,6 +160,23 @@ class SceneManager(
         return missing
     }
 
+    /**
+     * Recomputes and re-applies every window's bounds in [scene] against [area],
+     * without relaunching anything. For when the display's shape changes (a
+     * rotation) under windows that are already placed: [SceneWindow] bounds are
+     * fractions of the usable area precisely so this kind of rescale is
+     * possible without needing to know where anything used to be.
+     *
+     * Reuses [place]'s find-taskId-then-resize pass with every window marked
+     * pending. Anything missing is logged and left alone — there's no cold
+     * start to retry for here, every window should already exist.
+     */
+    fun reapplyBounds(scene: Scene, area: Rect) {
+        val svc = service() ?: return
+        val missing = place(svc, scene, area, scene.windows.map { it.packageName }.toSet())
+        if (missing.isNotEmpty()) Log.w(TAG, "reapplyBounds('${scene.name}'): no task for $missing")
+    }
+
     /** Current task id for [packageName], or null if it has no visible task right now. */
     fun currentTaskId(packageName: String): Int? {
         val svc = service() ?: return null
