@@ -19,9 +19,19 @@ class SceneStore(context: Context) {
         const val TAG = "TilingWM"
         const val PREFS = "scenes"
         const val KEY = "all"
+        const val KEY_AUTO_RESTORE = "auto_restore"
     }
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * Opt-in: when on, a window from the last-loaded scene that dies and comes
+     * back gets moved back to its saved pane. Off by default — this runs on a
+     * daily-use phone, so auto-behaviour has to be asked for, not assumed.
+     */
+    var autoRestoreEnabled: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_RESTORE, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_RESTORE, value).apply()
 
     fun list(): List<Scene> = read()
 
@@ -37,6 +47,32 @@ class SceneStore(context: Context) {
 
     fun delete(name: String) {
         write(read().filterNot { it.name == name })
+    }
+
+    /**
+     * Renames [oldName] to [newName] in place, preserving its position in the list.
+     * Returns false — leaving the store untouched — if [oldName] doesn't exist or
+     * [newName] is already taken by a different scene.
+     */
+    fun rename(oldName: String, newName: String): Boolean {
+        if (newName.isBlank()) return false
+        val scenes = read()
+        if (newName != oldName && scenes.any { it.name == newName }) return false
+        val index = scenes.indexOfFirst { it.name == oldName }
+        if (index < 0) return false
+
+        val updated = scenes.toMutableList()
+        updated[index] = updated[index].copy(name = newName)
+        write(updated)
+        return true
+    }
+
+    /** "$prefix 1", "$prefix 2", … skipping names already taken. */
+    fun nextAvailableName(prefix: String = "Scene"): String {
+        val taken = names().toSet()
+        var i = 1
+        while ("$prefix $i" in taken) i++
+        return "$prefix $i"
     }
 
     private fun read(): List<Scene> {

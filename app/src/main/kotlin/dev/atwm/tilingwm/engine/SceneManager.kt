@@ -51,6 +51,11 @@ class SceneManager(
                 info[offset + 1], info[offset + 2],
                 info[offset + 3], info[offset + 4]
             )
+            // A window dragged mostly or fully past the usable area's edge is
+            // still "visible" as far as the task manager is concerned, but it
+            // isn't really part of what's on screen — don't let it leak into a
+            // newly captured scene.
+            if (!Rect.intersects(bounds, area)) continue
             windows.add(SceneWindow.of(pkg, bounds, area))
         }
 
@@ -61,16 +66,46 @@ class SceneManager(
         return Scene(name, windows)
     }
 
-    /** Launches every app in [scene] and places each window as its task shows up. */
-    fun apply(scene: Scene, area: Rect) {
+    /**
+     * Launches every app in [scene] and places each window as its task shows up.
+     * Any other freeform window not in [scene] — leftovers from a previously
+     * loaded scene, typically — is minimized first via
+     * [IWindowTilingService.minimizeTask], so it can't sit beside or peek out
+     * through a gap in the new arrangement. Whatever [scene] itself relaunches
+     * un-minimizes normally, the same way tapping a taskbar icon would.
+     */
+    fun apply(scene: Scene, area: Rect, excludedPackages: Set<String>) {
         val svc = service() ?: return
         Log.d(TAG, "apply('${scene.name}'): ${scene.windows.size} windows")
+
+        minimizeOthers(svc, scene, excludedPackages)
 
         // Kick every app off first so their cold starts overlap rather than queue.
         scene.windows.forEach { svc.launchInFreeform(it.packageName) }
 
         schedulePlacement(scene, area, attempt = 0,
             pending = scene.windows.map { it.packageName }.toSet())
+    }
+
+    /**
+     * Minimizes every visible freeform window [scene] doesn't claim. Best effort
+     * and one-shot — unlike placement, nothing here is retried, since there's no
+     * "did it actually minimize" signal worth polling for.
+     */
+    private fun minimizeOthers(svc: IWindowTilingService, scene: Scene, excludedPackages: Set<String>) {
+        val keep = scene.windows.map { it.packageName }.toSet()
+        val (info, packages) = readTasks(svc) ?: return
+
+        var minimized = 0
+        for (i in packages.indices) {
+            val pkg = packages[i]
+            if (pkg.isEmpty() || pkg in keep || pkg in excludedPackages) continue
+            val offset = i * FIELDS_PER_TASK
+            if (info[offset + 5] != WINDOWING_MODE_FREEFORM) continue
+            svc.minimizeTask(info[offset])
+            minimized++
+        }
+        if (minimized > 0) Log.d(TAG, "apply('${scene.name}'): minimized $minimized leftover window(s)")
     }
 
     private fun schedulePlacement(
@@ -123,6 +158,16 @@ class SceneManager(
             svc.resizeTask(taskId, bounds.left, bounds.top, bounds.right, bounds.bottom)
         }
         return missing
+    }
+
+    /** Current task id for [packageName], or null if it has no visible task right now. */
+    fun currentTaskId(packageName: String): Int? {
+        val svc = service() ?: return null
+        val (info, packages) = readTasks(svc) ?: return null
+        for (i in packages.indices) {
+            if (packages[i] == packageName) return info[i * FIELDS_PER_TASK]
+        }
+        return null
     }
 
     /** Reads task info, guarding against the two arrays disagreeing. */

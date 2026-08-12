@@ -36,6 +36,26 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
         Class.forName("android.app.IActivityTaskManager")
     }
 
+    /**
+     * Samsung's own minimize entry point, reached via IActivityTaskManager's own
+     * getMultiTaskingBinder() — found by dumping every atmClass method whose name
+     * mentioned "multi"/"minimiz"/"binder" or that returned an IBinder, after a
+     * first guess (re-wrapping the "activity_task" binder directly as
+     * IMultiTaskingBinder.Stub) threw "SecurityException: Binder invocation to an
+     * incorrect interface" — that binder only answers to IActivityTaskManager.
+     * This one is the real accessor: same class of call as everything else here,
+     * confirmed by watching logcat while tapping the native caption bar's "-"
+     * button, which routes through IMultiTaskingBinder.minimizeTaskById.
+     */
+    private val multiTaskingBinder: Any by lazy {
+        val getMultiTaskingBinder = atmClass.getMethod("getMultiTaskingBinder")
+        getMultiTaskingBinder.invoke(atm)!!
+    }
+
+    private val multiTaskingBinderClass: Class<*> by lazy {
+        Class.forName("com.samsung.android.multiwindow.IMultiTaskingBinder")
+    }
+
     // Cached reflection methods
     private val resizeTaskMethod by lazy {
         atmClass.getMethod("resizeTask", Int::class.java, Rect::class.java, Int::class.java)
@@ -47,6 +67,10 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
 
     private val getTasksMethod by lazy {
         atmClass.getMethod("getTasks", Int::class.java, Boolean::class.java, Boolean::class.java, Int::class.java)
+    }
+
+    private val minimizeTaskByIdMethod by lazy {
+        multiTaskingBinderClass.getMethod("minimizeTaskById", Int::class.java)
     }
 
     override fun resizeTask(taskId: Int, left: Int, top: Int, right: Int, bottom: Int) {
@@ -166,6 +190,19 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
         } catch (e: Exception) {
             Log.e(TAG, "launchInFreeform($packageName) failed", e)
             -1
+        }
+    }
+
+    /**
+     * Minimizes [taskId] via Samsung's IMultiTaskingBinder — see the AIDL doc for
+     * what this replaced and why. No command line involved, unlike
+     * [launchInFreeform].
+     */
+    override fun minimizeTask(taskId: Int) {
+        try {
+            minimizeTaskByIdMethod.invoke(multiTaskingBinder, taskId)
+        } catch (e: Exception) {
+            Log.e(TAG, "minimizeTask($taskId) failed", e)
         }
     }
 

@@ -6,11 +6,39 @@
     <string name="shizuku_not_running">Shizuku is not running. Start it via ADB:\nadb shell sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh</string>
     <string name="permission_required">Shizuku permission required.</string>
     <string name="permission_denied">Permission denied. Tap to retry.</string>
-    <string name="connected">Connected to Shizuku. Enable the Accessibility Service, then start tiling.</string>
+    <string name="connected">Connected to Shizuku. Enable the Accessibility Service, then show the floating widget to save or restore a layout.</string>
     <string name="grant_permission">Grant Permission</string>
-    <string name="start_tiling">Start Tiling</string>
-    <string name="stop_tiling">Stop Tiling</string>
+    <string name="show_widget">Show Floating Widget</string>
+    <string name="hide_widget">Hide Floating Widget</string>
     <string name="retry">Retry</string>
     <string name="open_accessibility">Open Accessibility Settings</string>
-    <string name="accessibility_service_description">Monitors window changes to automatically tile windows in a master+stack layout.</string>
+    <string name="accessibility_service_description">Hosts the floating widget used to save and restore window layouts. Does not act on window events by itself.</string>
+    <string name="auto_restore_title">Auto-Restore on Relaunch</string>
+    <string name="auto_restore_hint">If an app from your last-loaded layout closes and reopens, put it back in its saved pane. Nothing else is touched.</string>
+
+    <!-- Presets section -->
+    <string name="section_presets_title">Create a Layout</string>
+    <string name="section_presets_hint">Pick a preset, then choose which app goes in each pane.</string>
+    <string name="preset_row_format">%1$s (%2$d apps)</string>
+    <string name="preset_slot_label">Pane %1$d</string>
+    <string name="choose_app">Choose App…</string>
+    <string name="pick_app_title">Choose an App</string>
+    <string name="create_layout">Create</string>
+    <string name="name_layout_title">Name This Layout</string>
+    <string name="save">Save</string>
+    <string name="overwrite">Overwrite</string>
+    <string name="overwrite_confirm">\'%1$s\' already exists. Overwrite it?</string>
+    <string name="name_required">Enter a name.</string>
+    <string name="layout_saved">Saved \'%1$s\'.</string>
+    <string name="need_two_apps">Pick at least two apps.</string>
+
+    <!-- Saved layouts section -->
+    <string name="section_scenes_title">Saved Layouts</string>
+    <string name="no_scenes_saved">No layouts saved yet. Capture the current windows from the floating widget, or create one from a preset above.</string>
+    <string name="scene_row_format">%1$s (%2$d windows)</string>
+    <string name="rename_button">Rename</string>
+    <string name="delete_button">Delete</string>
+    <string name="rename_dialog_title">Rename Layout</string>
+    <string name="name_taken">That name is already used by another layout.</string>
+    <string name="delete_confirm">Delete \'%1$s\'? This can\'t be undone.</string>
 </resources>
