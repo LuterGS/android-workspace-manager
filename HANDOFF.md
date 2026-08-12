@@ -265,13 +265,22 @@ adb logcat -d | ggrep 'TilingWM'
 
 기능적으로 완성입니다. 사용자가 원래 요청한 것(좌/우 분할 + 슬롯에 원하는 앱 지정 가능한 프리셋, scene 저장/복원, 이름 변경)이 전부 동작합니다.
 
+### Release 빌드 + GitHub Actions
+`LuterGS/android-custom-aod`의 `release.yml`을 참고해 `.github/workflows/release.yml` 추가함 (`workflow_dispatch` 수동 트리거 → `app/build.gradle.kts`의 `versionName`으로 서명된 release APK 빌드 → `v<versionName>` GitHub Release 생성). 이 repo와의 차이 때문에 조정한 부분:
+- JDK 17 → **21** (AGP의 `JdkImageTransform`이 21 아니면 `jlink`에서 실패 — 2번 참고)
+- `gradlew`가 없어서 (2번 참고) `setup-gradle`에 `gradle-version: "9.4.0"` 명시하고 `./gradlew` 대신 `gradle`로 직접 호출
+
+**release 서명 키스토어를 새로 만들어서 GitHub secrets 4개(`RELEASE_KEYSTORE_BASE64`/`RELEASE_KEYSTORE_PASSWORD`/`RELEASE_KEY_ALIAS`/`RELEASE_KEY_PASSWORD`)에 등록완료.** `app/build.gradle.kts`에 `RELEASE_KEYSTORE_PATH` 환경변수가 있을 때만 활성화되는 `signingConfigs.release`를 추가함 — 로컬에서 그 변수 없이 `assembleRelease` 해도 그냥 unsigned로 빌드될 뿐 안 깨짐. **키스토어 원본 파일 + 비밀번호는 GitHub secrets에 다시 못 읽어오므로, `SendUserFile`로 사용자에게 직접 전달함 (repo에는 커밋 안 함, `.gitignore`에 `*.keystore`/`*.jks` 추가).** 사용자가 안전한 곳에 백업했는지는 다음 세션에서 확신할 수 없으니, 이 키스토어가 아예 사라진 것 같으면 새로 만들어야 한다고 먼저 물어보세요 — 그러면 그 전에 배포된 release와는 다른 서명이 됩니다.
+
+이 debug keystore 이슈(아래 10번 1)와는 **별개**입니다 — release 서명은 이제 CI에서 고정된 하나의 키로 항상 만들어지므로 안정적이고, debug keystore(로컬 개발용, 여러 머신 오갈 때 `adb install -r` 충돌 나는 것)는 여전히 미해결.
+
 ---
 
 ## 10. 남은 것 / 알려진 이슈
 
 우선순위 낮은 순으로, 강제된 작업은 아닙니다:
 
-1. **디버그 서명 키가 머신마다 다름** (5번 표 참고). macOS와 이 세션의 Linux 환경을 번갈아 쓰면 `adb install -r`이 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 계속 막힐 수 있습니다. 근본 해결책은 프로젝트 전용 debug keystore를 만들어 `app/build.gradle.kts`의 `signingConfigs.debug`에 지정하고 repo에 커밋하는 것 — 다음에 이 문제가 또 나오면 사용자에게 제안하세요.
+1. **디버그 서명 키가 머신마다 다름** (5번 표 참고). macOS와 이 세션의 Linux 환경을 번갈아 쓰면 `adb install -r`이 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 계속 막힐 수 있습니다. 근본 해결책은 프로젝트 전용 debug keystore를 만들어 `app/build.gradle.kts`의 `signingConfigs.debug`에 지정하고 repo에 커밋하는 것 — 다음에 이 문제가 또 나오면 사용자에게 제안하세요. (release 서명 키와는 별개 — 9번 참고)
 2. **자동 재배치의 실제 트리거가 미검증** (7번 참고). scene을 로드하고, 그 안의 앱 하나를 force-stop한 뒤 재실행해서 정말 제자리로 돌아오는지 확인 필요.
 3. 앱 아이콘이 시스템 기본값 그대로입니다 (`AndroidManifest.xml`에 `android:icon` 없음). 요청받은 적 없어서 손대지 않았습니다.
 4. `PresetBuilderDialog`의 앱 선택기는 label만 보여주고 검색/필터가 없습니다 — 설치 앱이 아주 많아지면 (지금 기기엔 이미 수십 개) 스크롤이 길어집니다. 문제 제기 없었으니 선제 작업은 안 했습니다.

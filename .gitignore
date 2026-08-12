@@ -12,6 +12,12 @@ build/
 *.aab
 local.properties
 
+# Signing (release keystore is a secret, kept out of git entirely — see
+# .github/workflows/release.yml and the credentials handed to the user
+# directly, not committed anywhere)
+*.keystore
+*.jks
+
 # Claude
 .claude/
 

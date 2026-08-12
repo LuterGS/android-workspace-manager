@@ -16,10 +16,28 @@ android {
         versionName = "0.1.0"
     }
 
+    // Only present when RELEASE_KEYSTORE_PATH is set (CI, via secrets — see
+    // .github/workflows/release.yml). A local `gradle assembleRelease` without
+    // that env var still builds, just unsigned, same as before this existed.
+    val releaseKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
+    signingConfigs {
+        if (releaseKeystorePath != null) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            if (releaseKeystorePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
