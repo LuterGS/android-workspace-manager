@@ -14,6 +14,12 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
 
     private companion object {
         const val TAG = "TilingWM"
+
+        /** Dot-separated alphanumerics — no shell metacharacters can survive this. */
+        val PACKAGE_NAME = Regex("^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$")
+
+        /** "pkg/com.example.Activity", inner classes included. */
+        val COMPONENT_NAME = Regex("^[A-Za-z0-9._]+/[A-Za-z0-9._$]+$")
     }
 
     private val atm: Any by lazy {
@@ -133,18 +139,26 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
      * Shizuku's shell-UID process, so `am` is simply available.
      */
     override fun launchInFreeform(packageName: String): Int {
+        // This process runs as the shell user, so anything reaching a command line
+        // here runs privileged. Package names arrive from persisted scenes and over
+        // a binder interface, neither of which is trustworthy input.
+        if (!PACKAGE_NAME.matches(packageName)) {
+            Log.e(TAG, "launchInFreeform: rejected package name '$packageName'")
+            return -1
+        }
+
         return try {
-            val resolved = shell("cmd package resolve-activity --brief $packageName")
+            val resolved = exec("cmd", "package", "resolve-activity", "--brief", packageName)
                 .lineSequence()
                 .map { it.trim() }
-                .lastOrNull { it.contains('/') && !it.contains(' ') }
+                .lastOrNull { COMPONENT_NAME.matches(it) }
                 ?: run {
                     Log.e(TAG, "launchInFreeform($packageName): no launchable activity")
                     return -1
                 }
 
             // FLAG_ACTIVITY_NEW_TASK (0x10000000) keeps each app in its own task.
-            shell("am start -n $resolved --windowingMode 5 -f 0x10000000")
+            exec("am", "start", "-n", resolved, "--windowingMode", "5", "-f", "0x10000000")
 
             // The task id is only knowable after the window exists; the caller polls
             // getVisibleTaskInfo() for it. Report success without inventing an id.
@@ -155,8 +169,12 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
         }
     }
 
-    private fun shell(command: String): String {
-        val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+    /**
+     * Runs a command as an argv vector — never through `sh -c`, so no argument can
+     * be reinterpreted as shell syntax.
+     */
+    private fun exec(vararg args: String): String {
+        val process = Runtime.getRuntime().exec(args)
         val output = process.inputStream.bufferedReader().use { it.readText() }
         process.waitFor()
         return output
