@@ -17,6 +17,9 @@ set -euo pipefail
 # --- Config ---
 LAYOUT="${TILE_LAYOUT:-master-stack}"
 MASTER_RATIO="${TILE_MASTER_RATIO:-55}"  # percent of screen width for master
+FORCE_LANDSCAPE="${TILE_FORCE_LANDSCAPE:-0}"  # 1 = rotate to landscape before tiling
+GAP="${TILE_GAP:-0}"                      # pixels between adjacent windows
+OUTER_GAP="${TILE_OUTER_GAP:-$GAP}"       # pixels between a window and the screen edge
 STATUS_BAR_HEIGHT=100                     # pixels, adjust per device
 NAV_BAR_HEIGHT=100                        # pixels, adjust per device
 STATE_FILE="/tmp/.tile_managed_pkgs"      # tracks packages we launched
@@ -24,6 +27,15 @@ STATE_FILE="/tmp/.tile_managed_pkgs"      # tracks packages we launched
 # --- Helpers ---
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+# macOS ships BSD grep (no -P) — find a PCRE-capable grep instead.
+if echo x | grep -qP x 2>/dev/null; then
+    GREP=grep
+elif command -v ggrep >/dev/null 2>&1; then
+    GREP=ggrep
+else
+    die "No PCRE-capable grep found. On macOS: brew install grep"
+fi
 
 require_adb() {
     command -v adb >/dev/null 2>&1 || die "adb not found in PATH"
@@ -33,8 +45,13 @@ require_adb() {
 }
 
 get_screen_size() {
+    # `wm size` reports the panel's natural orientation (e.g. 2160x1584 on a
+    # folded-open Fold) regardless of the current rotation. The authoritative
+    # current logical size is `app=` on display 0 in `dumpsys window displays`.
     local size
-    size=$(adb shell wm size | grep -oP '\d+x\d+' | tail -1)
+    size=$(adb shell dumpsys window displays | \
+        "$GREP" -A1 'mDisplayId=0' | "$GREP" -oP 'app=\K\d+x\d+' | head -1)
+    [[ -n "$size" ]] || size=$(adb shell wm size | "$GREP" -oP '\d+x\d+' | tail -1)
     SCREEN_W="${size%x*}"
     SCREEN_H="${size#*x}"
 }
@@ -50,7 +67,7 @@ _dump_activities() {
 get_freeform_tasks() {
     # Returns unique task IDs for all freeform tasks
     _dump_activities | \
-        grep -oP '^\s+\* Task\{[^ ]+ #\K\d+(?= .* mode=freeform)' | sort -u || true
+        "$GREP" -oP '^\s+\* Task\{[^ ]+ #\K\d+(?= .* mode=freeform)' | sort -u || true
 }
 
 get_task_info() {
@@ -62,8 +79,8 @@ get_task_info() {
 get_all_visible_tasks() {
     # Returns unique task IDs for visible freeform tasks
     _dump_activities | \
-        grep -P '^\s+\* Task\{.*visible=true.*mode=freeform' | \
-        grep -oP '#\K\d+' | sort -u || true
+        "$GREP" -P '^\s+\* Task\{.*visible=true.*mode=freeform' | \
+        "$GREP" -oP '#\K\d+' | sort -u || true
 }
 
 # --- Commands ---
@@ -127,17 +144,17 @@ cmd_list() {
     echo "---"
     local seen=""
     _dump_activities | \
-        grep -P '^\s+\* Task\{.*mode=freeform' | \
+        "$GREP" -P '^\s+\* Task\{.*mode=freeform' | \
         while read -r line; do
             local tid
-            tid=$(echo "$line" | grep -oP '#\K\d+')
+            tid=$(echo "$line" | "$GREP" -oP '#\K\d+')
             # Deduplicate (tasks appear in multiple dumpsys sections)
             echo "$seen" | grep -qw "$tid" && continue
             seen="$seen $tid"
             local pkg
-            pkg=$(echo "$line" | grep -oP 'A=\d+:\K[^ ]+')
+            pkg=$(echo "$line" | "$GREP" -oP 'A=\d+:\K[^ ]+')
             local vis
-            vis=$(echo "$line" | grep -oP 'visible=\K\w+')
+            vis=$(echo "$line" | "$GREP" -oP 'visible=\K\w+')
             echo "  Task #$tid  $pkg  visible=$vis"
         done
     echo "---"
@@ -145,10 +162,15 @@ cmd_list() {
 
 cmd_tile() {
     _DUMPSYS_CACHE=""  # force fresh dump
-    # Force landscape — tiling on a phone only makes sense with the wider axis
-    adb shell settings put system accelerometer_rotation 0
-    adb shell settings put system user_rotation 1  # 1 = landscape
-    sleep 0.5
+    # Forcing landscape only helps on tall, narrow phones. Foldables ignore
+    # user_rotation on the inner display (One UI overrides it), and their inner
+    # screen is wide enough to tile in portrait — so this is opt-in.
+    # Either way we read the real logical size afterwards.
+    if [[ "$FORCE_LANDSCAPE" == "1" ]]; then
+        adb shell settings put system accelerometer_rotation 0
+        adb shell settings put system user_rotation 1  # 1 = landscape
+        sleep 0.5
+    fi
     get_screen_size
     # Read task IDs into array
     local -a task_arr=()
@@ -166,13 +188,13 @@ cmd_tile() {
 
     case "$LAYOUT" in
         master-stack)
-            _layout_master_stack task_arr "$count" "$top" "$bottom"
+            _layout_master_stack "$count" "$top" "$bottom" "${task_arr[@]}"
             ;;
         columns)
-            _layout_columns task_arr "$count" "$top" "$bottom"
+            _layout_columns "$count" "$top" "$bottom" "${task_arr[@]}"
             ;;
         monocle)
-            _layout_monocle task_arr "$count" "$top" "$bottom"
+            _layout_monocle "$count" "$top" "$bottom" "${task_arr[@]}"
             ;;
         *)
             die "Unknown layout: $LAYOUT. Options: master-stack, columns, monocle"
@@ -182,12 +204,43 @@ cmd_tile() {
     echo "Done."
 }
 
+# TODO(you): shrink a window's bounds so tiled windows don't touch.
+#
+#   Called as: _apply_gap <left> <top> <right> <bottom>
+#   Must echo the adjusted bounds as "left top right bottom".
+#
+# Two decisions shape how this feels:
+#   1. One uniform gap, or separate OUTER_GAP (window touches a screen edge)
+#      and INNER_GAP (window borders another window)? i3 distinguishes them.
+#      With a single gap the screen edge ends up looking half as wide as the
+#      space between neighbours, because only one window shrinks at an edge
+#      while two shrink at a shared border.
+#   2. If you shrink every side by the full gap, adjacent windows each give up
+#      that much and the visible gap between them doubles. Halving it evens
+#      the spacing out, but then the outer edge needs its own handling.
+#
+# GAP/OUTER_GAP are read from TILE_GAP/TILE_OUTER_GAP at the top of the script.
+_apply_gap() {
+    local left="$1" top="$2" right="$3" bottom="$4"
+    echo "$left $top $right $bottom"
+}
+
+# Single choke point for window placement, so gaps apply to every layout.
+_resize() {
+    local tid="$1"
+    local bounds
+    bounds=$(_apply_gap "$2" "$3" "$4" "$5")
+    adb shell am task resize "$tid" $bounds
+}
+
 _layout_master_stack() {
-    local -n _tasks=$1
-    local count="$2" top="$3" bottom="$4"
+    # bash 3.2 (macOS) has no `local -n` — take the array as trailing args.
+    local count="$1" top="$2" bottom="$3"
+    shift 3
+    local -a _tasks=("$@")
 
     if [[ "$count" -eq 1 ]]; then
-        adb shell am task resize "${_tasks[0]}" 0 "$top" "$SCREEN_W" "$bottom"
+        _resize "${_tasks[0]}" 0 "$top" "$SCREEN_W" "$bottom"
         echo "  Task #${_tasks[0]} → fullscreen"
         return
     fi
@@ -199,22 +252,23 @@ _layout_master_stack() {
     for i in "${!_tasks[@]}"; do
         local tid="${_tasks[$i]}"
         if [[ "$i" -eq 0 ]]; then
-            adb shell am task resize "$tid" 0 "$top" "$master_w" "$bottom"
+            _resize "$tid" 0 "$top" "$master_w" "$bottom"
             echo "  Task #$tid → master (0,$top → $master_w,$bottom)"
         else
             local slot=$((i - 1))
             local s_top=$((top + slot * stack_h))
             local s_bottom=$((s_top + stack_h))
             [[ "$i" -eq "$((count - 1))" ]] && s_bottom=$bottom
-            adb shell am task resize "$tid" "$master_w" "$s_top" "$SCREEN_W" "$s_bottom"
+            _resize "$tid" "$master_w" "$s_top" "$SCREEN_W" "$s_bottom"
             echo "  Task #$tid → stack ($master_w,$s_top → $SCREEN_W,$s_bottom)"
         fi
     done
 }
 
 _layout_columns() {
-    local -n _tasks=$1
-    local count="$2" top="$3" bottom="$4"
+    local count="$1" top="$2" bottom="$3"
+    shift 3
+    local -a _tasks=("$@")
     local col_w=$((SCREEN_W / count))
 
     for i in "${!_tasks[@]}"; do
@@ -222,18 +276,19 @@ _layout_columns() {
         local left=$((i * col_w))
         local right=$((left + col_w))
         [[ "$i" -eq "$((count - 1))" ]] && right=$SCREEN_W
-        adb shell am task resize "$tid" "$left" "$top" "$right" "$bottom"
+        _resize "$tid" "$left" "$top" "$right" "$bottom"
         echo "  Task #$tid → column ($left,$top → $right,$bottom)"
     done
 }
 
 _layout_monocle() {
-    local -n _tasks=$1
-    local count="$2" top="$3" bottom="$4"
+    local count="$1" top="$2" bottom="$3"
+    shift 3
+    local -a _tasks=("$@")
 
     for i in "${!_tasks[@]}"; do
         local tid="${_tasks[$i]}"
-        adb shell am task resize "$tid" 0 "$top" "$SCREEN_W" "$bottom"
+        _resize "$tid" 0 "$top" "$SCREEN_W" "$bottom"
         echo "  Task #$tid → fullscreen (monocle)"
     done
 
@@ -270,6 +325,7 @@ cmd_reset() {
     while IFS= read -r tid; do
         [[ -n "$tid" ]] || continue
         get_screen_size
+        # Deliberately not _resize: restoring fullscreen must ignore gaps.
         adb shell am task resize "$tid" 0 0 "$SCREEN_W" "$SCREEN_H"
         echo "  Task #$tid → fullscreen"
     done <<< "$tasks"
@@ -299,7 +355,7 @@ cmd_watch() {
         local cur_state
         cur_state=$(get_all_visible_tasks | tr '\n' ' ')
         local cur_size
-        cur_size=$(adb shell wm size | grep -oP '\d+x\d+' | tail -1)
+        cur_size=$(adb shell wm size | "$GREP" -oP '\d+x\d+' | tail -1)
         local state_key="${cur_state}|${cur_size}"
         if [[ "$state_key" != "$prev_state" ]]; then
             echo "[$(date +%H:%M:%S)] Change detected — retiling..."
