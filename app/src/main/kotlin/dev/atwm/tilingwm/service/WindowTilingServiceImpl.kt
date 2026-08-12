@@ -2,6 +2,7 @@ package dev.atwm.tilingwm.service
 
 import android.annotation.SuppressLint
 import android.graphics.Rect
+import android.util.Log
 import dev.atwm.tilingwm.IWindowTilingService
 
 /**
@@ -10,6 +11,10 @@ import dev.atwm.tilingwm.IWindowTilingService
  */
 @SuppressLint("PrivateApi")
 class WindowTilingServiceImpl : IWindowTilingService.Stub() {
+
+    private companion object {
+        const val TAG = "TilingWM"
+    }
 
     private val atm: Any by lazy {
         val smClass = Class.forName("android.os.ServiceManager")
@@ -42,7 +47,7 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
         try {
             resizeTaskMethod.invoke(atm, taskId, Rect(left, top, right, bottom), 0)
         } catch (e: Exception) {
-            // Reflection failure — silently ignore, task stays at current bounds
+            Log.e(TAG, "resizeTask($taskId) failed", e)
         }
     }
 
@@ -50,7 +55,7 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
         try {
             setTaskWindowingModeMethod.invoke(atm, taskId, windowingMode, toTop)
         } catch (e: Exception) {
-            // Reflection failure — silently ignore
+            Log.e(TAG, "setTaskWindowingMode($taskId) failed", e)
         }
     }
 
@@ -70,19 +75,24 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
                 val offset = i * 6
                 result[offset] = task.javaClass.getField("taskId").getInt(task)
 
-                val bounds = task.javaClass.getField("bounds").get(task) as Rect
+                // TaskInfo exposes no `bounds` field — the rect lives on the task's
+                // WindowConfiguration, right next to the windowing mode.
+                val configuration = task.javaClass.getField("configuration").get(task)!!
+                val windowConfig = configuration.javaClass.getField("windowConfiguration").get(configuration)!!
+
+                val bounds = windowConfig.javaClass.getMethod("getBounds")
+                    .invoke(windowConfig) as Rect
                 result[offset + 1] = bounds.left
                 result[offset + 2] = bounds.top
                 result[offset + 3] = bounds.right
                 result[offset + 4] = bounds.bottom
 
-                val configuration = task.javaClass.getField("configuration").get(task)!!
-                val windowConfig = configuration.javaClass.getField("windowConfiguration").get(configuration)!!
                 val getWindowingMode = windowConfig.javaClass.getMethod("getWindowingMode")
                 result[offset + 5] = getWindowingMode.invoke(windowConfig) as Int
             }
             return result
         } catch (e: Exception) {
+            Log.e(TAG, "getVisibleTaskInfo failed", e)
             return IntArray(0)
         }
     }
@@ -108,8 +118,48 @@ class WindowTilingServiceImpl : IWindowTilingService.Stub() {
                 }
             }.toTypedArray()
         } catch (e: Exception) {
+            Log.e(TAG, "getVisibleTaskPackages failed", e)
             return emptyArray()
         }
+    }
+
+    /**
+     * Launch [packageName] in freeform mode and return its task id (-1 on failure).
+     *
+     * Android 16 removed IActivityTaskManager.setTaskWindowingMode, so there is no
+     * API to re-mode a running task. `am start --windowingMode 5` does the job for
+     * every case a scene cares about: a dead app starts freeform, and a running
+     * fullscreen app is moved to freeform as its task is brought forward. We run in
+     * Shizuku's shell-UID process, so `am` is simply available.
+     */
+    override fun launchInFreeform(packageName: String): Int {
+        return try {
+            val resolved = shell("cmd package resolve-activity --brief $packageName")
+                .lineSequence()
+                .map { it.trim() }
+                .lastOrNull { it.contains('/') && !it.contains(' ') }
+                ?: run {
+                    Log.e(TAG, "launchInFreeform($packageName): no launchable activity")
+                    return -1
+                }
+
+            // FLAG_ACTIVITY_NEW_TASK (0x10000000) keeps each app in its own task.
+            shell("am start -n $resolved --windowingMode 5 -f 0x10000000")
+
+            // The task id is only knowable after the window exists; the caller polls
+            // getVisibleTaskInfo() for it. Report success without inventing an id.
+            0
+        } catch (e: Exception) {
+            Log.e(TAG, "launchInFreeform($packageName) failed", e)
+            -1
+        }
+    }
+
+    private fun shell(command: String): String {
+        val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        process.waitFor()
+        return output
     }
 
     override fun destroy() {
