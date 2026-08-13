@@ -1,9 +1,9 @@
-package dev.atwm.tilingwm.service
+package dev.lutergs.android_wm.service
 
 import android.content.ComponentName
 import android.content.ServiceConnection
 import android.os.IBinder
-import dev.atwm.tilingwm.IWindowTilingService
+import dev.lutergs.android_wm.IWindowTilingService
 
 class ShizukuServiceConnection : ServiceConnection {
     var service: IWindowTilingService? = null

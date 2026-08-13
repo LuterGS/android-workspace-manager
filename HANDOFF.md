@@ -24,7 +24,7 @@ Android 16의 freeform windowing을 이용해 폴더블/태블릿에서 **창 �
 - 내부 화면 논리 해상도 **1584x2160** (세로), density 320 (1dp = 2px)
 - 커버 디스플레이는 displayId=1 (1918x822)
 - freeform 관련 global 설정 3개는 **이미 활성화되어 있음** (`enable_freeform_support`, `force_resizable_activities`, `enable_non_resizable_multi_window`)
-- Shizuku 설치·실행 중, 앱의 UserService는 `dev.atwm.tilingwm:tiling` 프로세스(shell UID)로 뜸
+- Shizuku 설치·실행 중, 앱의 UserService는 `dev.lutergs.android_wm:tiling` 프로세스(shell UID)로 뜸 (applicationId/패키지명 이력은 8번의 2026-08-13 항목 참고 — 원래 `dev.atwm.tilingwm`이었다가 이 세션에서 개명함)
 
 ### 개발 머신 A: macOS (사용자의 평소 머신)
 빌드 명령은 **반드시** 아래 형태로 쓰세요. 그냥 `gradle build`는 실패합니다.
@@ -116,6 +116,7 @@ WindowTilingServiceImpl   Shizuku UserService (shell UID)
 - **창 식별자는 패키지명 단독입니다.** taskId는 앱이 죽으면 무효라 못 씁니다. **"앱당 창 하나"를 가정**하기로 사용자와 합의했습니다 (Chrome 창 2개 같은 경우는 고려하지 않음).
 - **`apply()`는 모든 앱을 먼저 한꺼번에 실행한 뒤** 재시도 루프로 회수합니다. 순차로 기다리면 콜드스타트가 직렬로 쌓입니다.
 - **`Preset`은 `LayoutStrategy` + 슬롯 개수**이고, `toScene()`으로 Scene을 만듭니다. 즉 프리셋과 캡처된 배치는 downstream에서 같은 객체입니다. `PresetBuilderDialog`가 이 경로를 사용하는 유일한 곳입니다.
+  - 두 가지 `LayoutStrategy` 구현체가 있습니다. **`MasterStackLayout`**은 방향에 따라 토폴로지가 바뀝니다(세로: master 좌/stack 우, 가로: master 상/stack 하) — `even-2`/`master-2`/`master-3`/`master-4` 프리셋이 씀. **`SplitLayout`**(2026-08-13 세션 추가)은 반대로 **방향과 무관하게 축이 고정**됩니다 (`Direction.LEFT_RIGHT`는 가로 화면에서도 좌/우 유지) — `split-*` 6개 프리셋이 씀, 정확히 50/50 분할 + 한쪽(또는 양쪽) 재분할만 표현하고 `masterRatio`/`stackRatios`는 안 씀.
 - **접근성 서비스는 기본적으로 창 이벤트에 반응하지 않지만, opt-in 자동 재배치가 하나 붙었습니다** (아래 참고). 기본값은 꺼짐(`SceneStore.autoRestoreEnabled = false`).
 - **`apply()`는 새 scene을 배치하기 전에, 그 scene에 속하지 않은 다른 freeform 창을 전부 진짜로 최소화합니다** (`SceneManager.minimizeOthers()` → `IWindowTilingService.minimizeTask(taskId)`). 연속으로 다른 scene을 불러오면 이전 scene의 창이 새 scene 위/옆에 계속 남아있던 실사용 버그(사용자가 직접 발견) 때문에 추가했습니다. **최종 구현**: `WindowTilingServiceImpl`에서 이미 연결된 `atm`(`IActivityTaskManager`) 객체에 리플렉션으로 `getMultiTaskingBinder()`를 호출해 Samsung의 `com.samsung.android.multiwindow.IMultiTaskingBinder`를 얻고, 그 위에서 `minimizeTaskById(taskId)`를 호출합니다. 이건 네이티브 캡션바 `-` 버튼과 완전히 같은 경로입니다 (`adb logcat`으로 실제 버튼을 눌러 호출 스택을 직접 확인함: `ShellWindowDecoration.onClick(minimize_window)` → `IMultiTaskingBinder$Stub.onTransact` → `MultiTaskingBinder.minimizeTaskById` → `Task.moveTaskToBack`(내부용, AIDL의 것과 다름) + `Task.setMinimized`). `capture()`는 이제 `area`와 교차하지 않는 창도 걸러냅니다 — 최소화된 task가 여전히 오래된 좌표를 들고 `isVisible=true`로 남아있는 짧은 순간이 있을 수 있어 방어적으로 유지.
   - **여기까지 오는 데 실패한 시도가 세 번 있었습니다. 전부 5번 표에 정리되어 있고, 아래 순서대로 되살리지 마세요:**
@@ -187,7 +188,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 **기존 서비스를 덮어쓰면 안 됩니다.** 이 기기에는 bitwarden, kdeconnect, simplewear, 삼성 게임부스터가 이미 등록되어 있습니다. 반드시 append (`scripts/deploy.sh`가 이 로직을 대신 해줌):
 
 ```bash
-SVC="dev.atwm.tilingwm/dev.atwm.tilingwm.service.TilingAccessibilityService"
+SVC="dev.lutergs.android_wm/dev.lutergs.android_wm.service.TilingAccessibilityService"
 CUR=$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')
 case "$CUR" in *"$SVC"*) ;; *) adb shell settings put secure enabled_accessibility_services "$CUR:$SVC";; esac
 adb shell settings put secure accessibility_enabled 1
@@ -259,11 +260,26 @@ adb logcat -d | ggrep 'TilingWM'
 - ✅ **회전 시 창 배치 재계산** — 회전해도 화면 밖으로 안 깨지도록 `TilingAccessibilityService.onConfigurationChanged()`(실제 orientation flip일 때만) → `SceneManager.reapplyBounds()`(relaunch 없이 좌표만 재계산·재적용)로 처리. **사용자가 직접 기기를 돌려서 검증함.** 단, `MasterStackLayout` 계열 프리셋은 만들어질 때 방향의 topology(세로: master 왼쪽 / 가로: master 위쪽)가 비율로 고정되므로, 회전해도 안 깨지긴 하지만 반대 방향에 최적화된 배치로 자동 전환되지는 않음 — 다음 개선 후보
 - ✅ **상/하단 여백 제거** — `TilingConfig.statusBarHeight`/`navBarHeight`가 실제 크기가 아니라 고정 추정치(100px)였던 게 원인. `usableArea()`를 `WindowManager.getMaximumWindowMetrics()` + `WindowInsets.Type.systemBars()`로 실제 인셋을 읽도록 재작성 (`getCurrentWindowMetrics()`가 아님 — 그건 호출하는 창 자신의 크기라, MainActivity가 작은 freeform 창일 때 잘못된 값이 나옴). 이 두 필드의 유일한 소비자였던 `TilingEngine.kt`(실시간 타일링 시절 죽은 코드)와 그게 쓰던 `LayoutBounds`/`TaskInfo` 모델도 같이 삭제. **사용자가 직접 검증함.**
 
+### 2026-08-13 세션
+
+**기기가 연결되지 않은 상태로 진행 — 아래 전부 Docker 빌드(컴파일)까지만 확인했고, 실기기 동작 확인은 아직 안 됨.** 다음 세션에서 기기 연결되면 최우선으로 검증할 것 (10번 참고).
+
+`assembleDebug` **BUILD SUCCESSFUL** (기존에도 있던, 무관한 `kotlinOptions` deprecation 경고 하나 외엔 에러/경고 없음).
+
+- ✅ **applicationId 변경, 이어서 패키지 전체 통일**: `dev.atwm.tilingwm` → `dev.lutergs.android_wm`. 사용자가 요청한 `dev.lutergs.android-wm`은 하이픈이 Android 패키지명 규칙(Java 패키지 규칙, `[a-zA-Z0-9_]`만 허용)에 위배되어 언더스코어로 치환.
+  - **1단계(먼저 시도)**: `applicationId`만 바꾸고 `namespace`(Kotlin 패키지)는 `dev.atwm.tilingwm`로 남겨둠 — AGP가 원래 지원하는 표준 패턴이라 대규모 파일 이동 없이 안전하게 끝낼 수 있어서. `aapt dump badging`으로 실제 빌드 결과를 까봐서 흥미로운 사실을 하나 확인함: `package: name='dev.lutergs.android_wm'`인데 `launchable-activity: name='dev.atwm.tilingwm.MainActivity'` — 매니페스트의 상대 컴포넌트 이름(`.MainActivity`)은 **`namespace` 기준**으로 풀리고, 패키지 식별자만 `applicationId`를 따른다는 게 실물로 증명됨. (다음에 이 둘을 다시 분리할 일이 생기면 `scripts/deploy.sh`에서 `PKG`/`NS`를 별도 변수로 둬야 한다는 뜻 — 지금은 2단계로 다시 합쳐서 해당 없음.)
+  - **2단계(사용자가 바로 이어서 요청)**: "`dev.atwm.tilingwm`를 전부 `dev.lutergs.android_wm`로" — `namespace`까지 포함해 완전히 통일. `app/src/main/kotlin/dev/atwm/tilingwm/` 아래 15개 `.kt` 파일 + `app/src/main/aidl/dev/atwm/tilingwm/IWindowTilingService.aidl`을 전부 `dev/lutergs/android_wm/` 아래로 이동(`git mv`, 세션 중 추가돼서 아직 untracked였던 `SplitLayout.kt`만 일반 `mv`)하고, 각 파일의 `package`/`import` 선언을 전부 `dev.lutergs.android_wm`로 치환. `app/build.gradle.kts`의 `namespace`도 맞춤. `scripts/deploy.sh`는 `PKG`/`NS`가 다시 같은 값이 되어 무의미해진 분리를 걷어내고 `PKG` 하나로 되돌림. **최종 상태**: `applicationId` == `namespace` == `dev.lutergs.android_wm`, 이 프로젝트에 `dev.atwm.tilingwm` 문자열은 (의도적으로 안 건드린 `docs/architecture-phase1.md` 역사 문서 제외) 더 이상 안 남아있음.
+  - **주의**: 기존 설치본(`dev.atwm.tilingwm`)과는 다른 앱으로 인식되므로, 다음 설치 시 새 앱으로 설치되고 기존에 저장한 scene은 안 이어집니다.
+- ✅ **회전 재배치 on/off 토글**: `SceneStore.rotationReflowEnabled`(기본값 켜짐 — auto-restore와 달리 사용자가 방금 취한 행동(회전)에만 반응하고 이미 실기기 검증까지 된 동작이라 기본 on으로 판단) 추가, `TilingAccessibilityService.onConfigurationChanged()`의 `reapplyBounds` 호출을 이걸로 게이팅. MainActivity의 Connection 카드에 Auto-Restore 스위치 바로 아래 배치.
+- ✅ **신규 프리셋 6개**: `SplitLayout`(신규 `LayoutStrategy`) 추가 — `MasterStackLayout`과 달리 방향과 무관하게 분할 축이 고정됨(가로 화면에서도 좌/우 유지). 좌우 2분할 / 좌우+우측 상하분할(3개) / 좌우+좌측 상하분할(3개) / 균등 2×2(4개) / 상하+상단 좌우분할(3개) / 상하+하단 좌우분할(3개). 기존 4개(`even-2`/`master-2`/`master-3`/`master-4`)는 그대로 유지 — 사용자가 "추가"라고 명시했으므로 교체 아님.
+- ✅ **플로팅 위젯 패널 반응형화**: 기존엔 `rowCount * dp(48)` 식 수동 추정 높이였음(버튼 높이를 두 곳에 중복 하드코딩하는 취약한 구조) → `MaxHeightScrollView`(`onMeasure`를 `AT_MOST`로 캡핑하는 작은 `ScrollView` 서브클래스) + `WindowManager.LayoutParams.WRAP_CONTENT`로 교체. 콘텐츠가 적으면 패널이 짧아지고, 최대 높이(`PANEL_MAX_HEIGHT_DP`)를 넘으면 그때부터 스크롤 — 실제 콘텐츠 기준. 부수적으로 scene 이름이 길 때 `ellipsize`로 잘리게 함 (이전엔 버튼 높이가 고정이라 긴 이름이 어색하게 잘려 보일 수 있었음).
+- ✅ **전체 UI 비주얼 개선**: `colors.xml` + `values-night/colors.xml`(다크 대응) / `themes.xml`(`Theme.TilingWM` — primary/accent 컬러, 버튼 스타일 2종) 신규 추가. `activity_main.xml`을 카드 3개(Connection / Presets / Saved Layouts) 구조로 재구성. preset·scene 목록 행을 plain `Button`에서 라운드 카드(제목+부제 2줄, preset은 `›` 화살표, scene은 ✎/✕ 아이콘 버튼)로 교체. `PresetBuilderDialog`의 버튼들도 같은 스타일 리소스를 재사용(`Button(activity, null, 0, styleRes)` — 코드로 만드는 View에 XML 스타일을 입히는 표준적인 4-인자 생성자 패턴). **앱 아이콘 추가** — adaptive icon(`mipmap-anydpi-v26`만, minSdk 33이라 레거시 밀도별 fallback 불필요), master+stack 배치를 형상화한 벡터 글리프.
+
 ---
 
 ## 9. 지금 상태
 
-기능적으로 완성입니다. 사용자가 원래 요청한 것(좌/우 분할 + 슬롯에 원하는 앱 지정 가능한 프리셋, scene 저장/복원, 이름 변경)이 전부 동작합니다.
+기능적으로 완성입니다. 사용자가 원래 요청한 것(좌/우 분할 + 슬롯에 원하는 앱 지정 가능한 프리셋, scene 저장/복원, 이름 변경)이 전부 동작하고, 2026-08-13 세션에서 App ID·on/off 토글·프리셋 6종·위젯 반응형화·UI 비주얼 개선까지 얹었습니다 (단, 이 마지막 배치는 아직 실기기 미검증 — 위 참고).
 
 ### Release 빌드 + GitHub Actions
 `LuterGS/android-custom-aod`의 `release.yml`을 참고해 `.github/workflows/release.yml` 추가함 (`workflow_dispatch` 수동 트리거 → `app/build.gradle.kts`의 `versionName`으로 서명된 release APK 빌드 → `v<versionName>` GitHub Release 생성). 이 repo와의 차이 때문에 조정한 부분:
@@ -278,12 +294,15 @@ adb logcat -d | ggrep 'TilingWM'
 
 ## 10. 남은 것 / 알려진 이슈
 
-우선순위 낮은 순으로, 강제된 작업은 아닙니다:
-
+0. **[최우선] 2026-08-13 세션 변경사항이 전부 실기기 미검증입니다** (8번의 해당 날짜 항목 참고) — 기기가 연결 안 된 채로 진행해서 Docker 컴파일만 확인했습니다. 다음 세션에서 기기가 연결되면 가장 먼저:
+   - `dev.lutergs.android_wm`으로 재설치가 실제로 되는지, 그리고 구버전(`dev.atwm.tilingwm`)이 남아있다면 둘이 충돌 없이 공존하는지 (또는 사용자가 구버전을 지우길 원하는지)
+   - 회전 재배치 on/off 스위치가 실제로 동작을 껐다 켰다 하는지
+   - 신규 프리셋 6개가 화면에 올바른 좌표로 배치되는지 (특히 2×2 균등분할과, 상/하 분할 계열 — `SplitLayout`은 이번에 새로 짠 좌표 계산이라 `MasterStackLayout`만큼 실전 검증이 안 됨)
+   - 위젯 패널이 scene 개수에 따라 실제로 반응형으로 줄었다 늘었다 하는지
+   - 카드 UI·다크모드 배색·앱 아이콘이 실제로 의도대로 보이는지 (색상 대비, 라운드 코너 렌더링 등은 코드만으로는 확신 불가)
 1. **디버그 서명 키가 머신마다 다름** (5번 표 참고). macOS와 이 세션의 Linux 환경을 번갈아 쓰면 `adb install -r`이 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 계속 막힐 수 있습니다. 근본 해결책은 프로젝트 전용 debug keystore를 만들어 `app/build.gradle.kts`의 `signingConfigs.debug`에 지정하고 repo에 커밋하는 것 — 다음에 이 문제가 또 나오면 사용자에게 제안하세요. (release 서명 키와는 별개 — 9번 참고)
 2. **자동 재배치의 실제 트리거가 미검증** (7번 참고). scene을 로드하고, 그 안의 앱 하나를 force-stop한 뒤 재실행해서 정말 제자리로 돌아오는지 확인 필요.
-3. 앱 아이콘이 시스템 기본값 그대로입니다 (`AndroidManifest.xml`에 `android:icon` 없음). 요청받은 적 없어서 손대지 않았습니다.
-4. `PresetBuilderDialog`의 앱 선택기는 label만 보여주고 검색/필터가 없습니다 — 설치 앱이 아주 많아지면 (지금 기기엔 이미 수십 개) 스크롤이 길어집니다. 문제 제기 없었으니 선제 작업은 안 했습니다.
+3. `PresetBuilderDialog`의 앱 선택기는 label만 보여주고 검색/필터가 없습니다 — 설치 앱이 아주 많아지면 (지금 기기엔 이미 수십 개) 스크롤이 길어집니다. 문제 제기 없었으니 선제 작업은 안 했습니다.
 
 ---
 

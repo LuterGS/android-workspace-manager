@@ -1,4 +1,4 @@
-package dev.atwm.tilingwm.model
+package dev.lutergs.android_wm.model
 
 data class TilingConfig(
     val masterRatio: Float = 0.55f,
@@ -12,6 +12,6 @@ data class TilingConfig(
     val excludedPackages: Set<String> = setOf(
         "com.android.systemui",
         "com.android.launcher3",
-        "dev.atwm.tilingwm"
+        "dev.lutergs.android_wm" // this app's own applicationId/package — don't tile ourselves
     )
 )

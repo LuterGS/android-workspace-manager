@@ -1,4 +1,4 @@
-package dev.atwm.tilingwm.ui
+package dev.lutergs.android_wm.ui
 
 import android.content.Intent
 import android.text.InputType
@@ -14,18 +14,18 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import dev.atwm.tilingwm.R
-import dev.atwm.tilingwm.data.SceneStore
-import dev.atwm.tilingwm.engine.Preset
-import dev.atwm.tilingwm.engine.usableArea
-import dev.atwm.tilingwm.model.TilingConfig
-import dev.atwm.tilingwm.service.TilingAccessibilityService
+import dev.lutergs.android_wm.R
+import dev.lutergs.android_wm.data.SceneStore
+import dev.lutergs.android_wm.engine.Preset
+import dev.lutergs.android_wm.engine.usableArea
+import dev.lutergs.android_wm.model.TilingConfig
+import dev.lutergs.android_wm.service.TilingAccessibilityService
 
 /**
  * Walks the user through turning a [Preset] into a saved scene: pick an app for
  * each pane, name the result, save it.
  *
- * This needs no Shizuku connection — building a [dev.atwm.tilingwm.model.Scene] is
+ * This needs no Shizuku connection — building a [dev.lutergs.android_wm.model.Scene] is
  * pure layout math over whichever packages the user picks — so it can run any time
  * MainActivity is open, connected or not.
  */
@@ -47,6 +47,17 @@ class PresetBuilderDialog(
         TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), activity.resources.displayMetrics
     ).toInt()
 
+    /**
+     * A [Button] built with one of MainActivity's shared button styles, applied via
+     * the defStyleRes constructor slot — the standard way to style a view created in
+     * code rather than inflated from XML (see [android.view.View]'s 4-arg ctor).
+     */
+    private fun styledButton(styleRes: Int, label: String, onClick: () -> Unit): Button =
+        Button(activity, null, 0, styleRes).apply {
+            text = label
+            setOnClickListener { onClick() }
+        }
+
     fun show() {
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -60,21 +71,24 @@ class PresetBuilderDialog(
                 alpha = 0.7f
                 setPadding(0, if (index == 0) 0 else dp(14), 0, dp(4))
             })
-            val button = Button(activity).apply {
-                text = activity.getString(R.string.choose_app)
-                isAllCaps = false
-                setOnClickListener { showAppPicker { entry -> onSlotPicked(index, entry) } }
+            val button = styledButton(R.style.Widget_TilingWM_Button_Secondary, activity.getString(R.string.choose_app)) {
+                showAppPicker { entry -> onSlotPicked(index, entry) }
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
             }
             content.addView(button)
             slotButtons.add(button)
         }
 
-        createButton = Button(activity).apply {
-            text = activity.getString(R.string.create_layout)
-            isAllCaps = false
+        createButton = styledButton(R.style.Widget_TilingWM_Button_Primary, activity.getString(R.string.create_layout)) {
+            promptNameAndSave()
+        }.apply {
             isEnabled = false
-            setPadding(0, dp(20), 0, 0)
-            setOnClickListener { promptNameAndSave() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(20) }
         }
         content.addView(createButton)
 

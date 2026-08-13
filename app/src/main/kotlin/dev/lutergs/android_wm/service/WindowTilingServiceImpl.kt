@@ -1,9 +1,9 @@
-package dev.atwm.tilingwm.service
+package dev.lutergs.android_wm.service
 
 import android.annotation.SuppressLint
 import android.graphics.Rect
 import android.util.Log
-import dev.atwm.tilingwm.IWindowTilingService
+import dev.lutergs.android_wm.IWindowTilingService
 
 /**
  * Runs in Shizuku's privileged process (UID 2000).

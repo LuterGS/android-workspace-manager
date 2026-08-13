@@ -4,12 +4,12 @@ plugins {
 }
 
 android {
-    namespace = "dev.atwm.tilingwm"
+    namespace = "dev.lutergs.android_wm"
     compileSdk = 35
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
-        applicationId = "dev.atwm.tilingwm"
+        applicationId = "dev.lutergs.android_wm"
         minSdk = 33
         targetSdk = 35
         versionCode = 1

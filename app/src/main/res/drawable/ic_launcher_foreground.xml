@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Master + 2-stacked layout glyph, echoing the app's core master-stack tiling
+  shape. Kept inside the centered ~66dp safe zone of the 108dp adaptive-icon
+  canvas so masking/parallax on any launcher shape never clips it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M21,21 h29 v66 h-29 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M54,21 h33 v31 h-33 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M54,56 h33 v31 h-33 z" />
+</vector>

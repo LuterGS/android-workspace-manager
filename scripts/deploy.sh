@@ -8,9 +8,9 @@
 #   deploy.sh --no-launch     Skip opening the app afterwards
 #
 # Re-registering the accessibility service is safe to run every time: it only
-# appends dev.atwm.tilingwm's service to enabled_accessibility_services if it
-# isn't already there, so other services already enabled on the device
-# (Bitwarden, KDE Connect, SimpleWear, Samsung Game Booster, …) are untouched.
+# appends the app's service to enabled_accessibility_services if it isn't
+# already there, so other services already enabled on the device (Bitwarden,
+# KDE Connect, SimpleWear, Samsung Game Booster, …) are untouched.
 # The Android system deregisters the service on every reinstall, which is why
 # this step has to run on every deploy, not just the first one.
 
@@ -19,7 +19,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 APK="app/build/outputs/apk/debug/app-debug.apk"
-PKG="dev.atwm.tilingwm"
+PKG="dev.lutergs.android_wm"  # applicationId == namespace (app/build.gradle.kts) — one identity, both roles
 SVC="$PKG/$PKG.service.TilingAccessibilityService"
 
 die() { echo "ERROR: $*" >&2; exit 1; }

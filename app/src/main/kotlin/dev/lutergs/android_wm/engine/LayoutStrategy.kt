@@ -1,7 +1,7 @@
-package dev.atwm.tilingwm.engine
+package dev.lutergs.android_wm.engine
 
 import android.graphics.Rect
-import dev.atwm.tilingwm.model.TilingConfig
+import dev.lutergs.android_wm.model.TilingConfig
 
 interface LayoutStrategy {
     /**

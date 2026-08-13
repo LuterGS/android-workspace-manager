@@ -1,4 +1,4 @@
-package dev.atwm.tilingwm.model
+package dev.lutergs.android_wm.model
 
 import android.graphics.Rect
 

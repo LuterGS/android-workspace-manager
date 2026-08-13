@@ -1,4 +1,4 @@
-package dev.atwm.tilingwm.service
+package dev.lutergs.android_wm.service
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -9,6 +9,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.View.MeasureSpec
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
@@ -210,16 +211,15 @@ class FloatingWidget(
             }
         }
 
-        val scroller = ScrollView(context).apply { addView(content) }
-
-        // A fixed height is what makes the ScrollView actually scroll, so estimate
-        // the content and cap it rather than using WRAP_CONTENT.
-        val rowCount = 1 + maxOf(1, names.size)
-        val estimatedHeight = dp(40) + rowCount * dp(48) + dp(12)
+        // Responsive, not a hardcoded per-row estimate: the scroller measures its
+        // real content and only clamps if that exceeds the cap, so it always
+        // matches whatever panelButton/content actually render as, with nothing
+        // here re-deriving their heights.
+        val scroller = MaxHeightScrollView(context, dp(PANEL_MAX_HEIGHT_DP)).apply { addView(content) }
 
         val params = WindowManager.LayoutParams(
             dp(PANEL_WIDTH_DP),
-            minOf(estimatedHeight, dp(PANEL_MAX_HEIGHT_DP)),
+            WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -232,6 +232,14 @@ class FloatingWidget(
         runCatching { windowManager.addView(scroller, params) }.onSuccess { panel = scroller }
     }
 
+    /** A ScrollView that wraps its content up to [maxHeightPx], then scrolls. */
+    private class MaxHeightScrollView(context: Context, private val maxHeightPx: Int) : ScrollView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val capped = MeasureSpec.makeMeasureSpec(maxHeightPx, MeasureSpec.AT_MOST)
+            super.onMeasure(widthMeasureSpec, capped)
+        }
+    }
+
     private fun panelButton(
         label: String,
         onLongClick: (() -> Unit)? = null,
@@ -241,6 +249,8 @@ class FloatingWidget(
         isAllCaps = false
         setTextColor(Color.WHITE)
         textSize = 14f
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
         gravity = Gravity.CENTER_VERTICAL or Gravity.START
         setPadding(dp(10), 0, dp(10), 0)
         background = GradientDrawable().apply {

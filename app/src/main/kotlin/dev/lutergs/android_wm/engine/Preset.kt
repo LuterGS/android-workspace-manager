@@ -1,9 +1,9 @@
-package dev.atwm.tilingwm.engine
+package dev.lutergs.android_wm.engine
 
 import android.graphics.Rect
-import dev.atwm.tilingwm.model.Scene
-import dev.atwm.tilingwm.model.SceneWindow
-import dev.atwm.tilingwm.model.TilingConfig
+import dev.lutergs.android_wm.model.Scene
+import dev.lutergs.android_wm.model.SceneWindow
+import dev.lutergs.android_wm.model.TilingConfig
 
 /**
  * A ready-made arrangement: a layout plus a slot count.
@@ -64,6 +64,44 @@ object Presets {
             label = "Master + 3 stacked",
             slotCount = 4,
             strategy = MasterStackLayout()
+        ),
+
+        // Fixed-axis splits: same shape in portrait and landscape (see SplitLayout).
+        Preset(
+            id = "split-lr",
+            label = "Left / Right",
+            slotCount = 2,
+            strategy = SplitLayout(SplitLayout.Direction.LEFT_RIGHT, SplitLayout.Subdivide.NONE)
+        ),
+        Preset(
+            id = "split-lr-right-split",
+            label = "Left, Right split top+bottom",
+            slotCount = 3,
+            strategy = SplitLayout(SplitLayout.Direction.LEFT_RIGHT, SplitLayout.Subdivide.SECOND)
+        ),
+        Preset(
+            id = "split-lr-left-split",
+            label = "Left split top+bottom, Right",
+            slotCount = 3,
+            strategy = SplitLayout(SplitLayout.Direction.LEFT_RIGHT, SplitLayout.Subdivide.FIRST)
+        ),
+        Preset(
+            id = "split-grid",
+            label = "2×2 Grid",
+            slotCount = 4,
+            strategy = SplitLayout(SplitLayout.Direction.LEFT_RIGHT, SplitLayout.Subdivide.BOTH)
+        ),
+        Preset(
+            id = "split-tb-top-split",
+            label = "Top split left+right, Bottom",
+            slotCount = 3,
+            strategy = SplitLayout(SplitLayout.Direction.TOP_BOTTOM, SplitLayout.Subdivide.FIRST)
+        ),
+        Preset(
+            id = "split-tb-bottom-split",
+            label = "Top, Bottom split left+right",
+            slotCount = 3,
+            strategy = SplitLayout(SplitLayout.Direction.TOP_BOTTOM, SplitLayout.Subdivide.SECOND)
         )
     )
 

@@ -1,4 +1,4 @@
-package dev.atwm.tilingwm;
+package dev.lutergs.android_wm;
 
 interface IWindowTilingService {
     void destroy() = 16777114;

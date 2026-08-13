@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Light palette (default). Dark equivalents live in values-night/colors.xml
+      with the same names — DayNight picks the right file automatically, no
+      code needed. Keep the two files' color *roles* in sync; only the values
+      should differ.
+    -->
+    <color name="background">#F4F5F8</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_variant">#ECEEF2</color>
+    <color name="primary">#4C6FFF</color>
+    <color name="primary_dark">#3955CC</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="on_background">#1A1C1E</color>
+    <color name="on_background_secondary">#5F6368</color>
+    <color name="divider">#E1E3E6</color>
+    <color name="danger">#D93025</color>
+    <color name="on_danger">#FFFFFF</color>
+    <color name="ripple">#1F000000</color>
+</resources>

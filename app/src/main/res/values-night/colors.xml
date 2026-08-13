@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background">#121316</color>
+    <color name="surface">#1E2024</color>
+    <color name="surface_variant">#26282D</color>
+    <color name="primary">#7B93FF</color>
+    <color name="primary_dark">#5B7FDE</color>
+    <color name="on_primary">#0B1030</color>
+    <color name="on_background">#E8EAED</color>
+    <color name="on_background_secondary">#9AA0A6</color>
+    <color name="divider">#33363B</color>
+    <color name="danger">#F28B82</color>
+    <color name="on_danger">#3B0A06</color>
+    <color name="ripple">#33FFFFFF</color>
+</resources>

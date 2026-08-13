@@ -1,4 +1,4 @@
-package dev.atwm.tilingwm.service
+package dev.lutergs.android_wm.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.res.Configuration
@@ -7,12 +7,12 @@ import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
-import dev.atwm.tilingwm.data.SceneStore
-import dev.atwm.tilingwm.engine.SceneManager
-import dev.atwm.tilingwm.engine.usableArea
-import dev.atwm.tilingwm.model.Scene
-import dev.atwm.tilingwm.model.SceneWindow
-import dev.atwm.tilingwm.model.TilingConfig
+import dev.lutergs.android_wm.data.SceneStore
+import dev.lutergs.android_wm.engine.SceneManager
+import dev.lutergs.android_wm.engine.usableArea
+import dev.lutergs.android_wm.model.Scene
+import dev.lutergs.android_wm.model.SceneWindow
+import dev.lutergs.android_wm.model.TilingConfig
 
 /**
  * Hosts the floating widget and performs scene capture/restore.
@@ -91,12 +91,16 @@ class TilingAccessibilityService : AccessibilityService(), FloatingWidget.Callba
      * active scene's bounds against the post-rotation area fixes that; nothing
      * gets relaunched, so this can't steal focus from whatever the user is doing
      * mid-rotation the way a full apply() would.
+     *
+     * Gated behind [SceneStore.rotationReflowEnabled] (on by default): it's a
+     * visible, disruptive move mid-rotation, so it needs to be easy to turn off.
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         if (newConfig.orientation == lastOrientation) return
         lastOrientation = newConfig.orientation
 
+        if (!store.rotationReflowEnabled) return
         val scene = activeScene ?: return
         if (serviceConnection?.service == null) return
         // The rotation animation needs a moment to actually finish, or this

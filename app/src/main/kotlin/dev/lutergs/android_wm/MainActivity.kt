@@ -1,10 +1,13 @@
-package dev.atwm.tilingwm
+package dev.lutergs.android_wm
 
 import android.content.ComponentName
 import android.content.Intent
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -17,14 +20,14 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
-import dev.atwm.tilingwm.data.SceneStore
-import dev.atwm.tilingwm.engine.Preset
-import dev.atwm.tilingwm.engine.Presets
-import dev.atwm.tilingwm.model.Scene
-import dev.atwm.tilingwm.service.ShizukuServiceConnection
-import dev.atwm.tilingwm.service.TilingAccessibilityService
-import dev.atwm.tilingwm.service.WindowTilingServiceImpl
-import dev.atwm.tilingwm.ui.PresetBuilderDialog
+import dev.lutergs.android_wm.data.SceneStore
+import dev.lutergs.android_wm.engine.Preset
+import dev.lutergs.android_wm.engine.Presets
+import dev.lutergs.android_wm.model.Scene
+import dev.lutergs.android_wm.service.ShizukuServiceConnection
+import dev.lutergs.android_wm.service.TilingAccessibilityService
+import dev.lutergs.android_wm.service.WindowTilingServiceImpl
+import dev.lutergs.android_wm.ui.PresetBuilderDialog
 import rikka.shizuku.Shizuku
 
 /**
@@ -49,6 +52,7 @@ class MainActivity : AppCompatActivity(),
     private lateinit var actionButton: Button
     private lateinit var accessibilityButton: Button
     private lateinit var autoRestoreSwitch: SwitchCompat
+    private lateinit var rotationReflowSwitch: SwitchCompat
     private lateinit var presetList: LinearLayout
     private lateinit var sceneList: LinearLayout
     private lateinit var sceneEmptyHint: TextView
@@ -63,6 +67,7 @@ class MainActivity : AppCompatActivity(),
         actionButton = findViewById(R.id.action_button)
         accessibilityButton = findViewById(R.id.accessibility_button)
         autoRestoreSwitch = findViewById(R.id.auto_restore_switch)
+        rotationReflowSwitch = findViewById(R.id.rotation_reflow_switch)
         presetList = findViewById(R.id.preset_list)
         sceneList = findViewById(R.id.scene_list)
         sceneEmptyHint = findViewById(R.id.scene_empty_hint)
@@ -70,6 +75,8 @@ class MainActivity : AppCompatActivity(),
         accessibilityButton.setOnClickListener { openAccessibilitySettings() }
         autoRestoreSwitch.isChecked = store.autoRestoreEnabled
         autoRestoreSwitch.setOnCheckedChangeListener { _, checked -> store.autoRestoreEnabled = checked }
+        rotationReflowSwitch.isChecked = store.rotationReflowEnabled
+        rotationReflowSwitch.setOnCheckedChangeListener { _, checked -> store.rotationReflowEnabled = checked }
 
         Shizuku.addRequestPermissionResultListener(this)
         Shizuku.addBinderReceivedListener(this)
@@ -179,16 +186,46 @@ class MainActivity : AppCompatActivity(),
         Presets.ALL.forEach { preset -> presetList.addView(presetRow(preset)) }
     }
 
-    private fun presetRow(preset: Preset): View = Button(this).apply {
-        text = getString(R.string.preset_row_format, preset.label, preset.slotCount)
-        isAllCaps = false
-        gravity = Gravity.START or Gravity.CENTER_VERTICAL
-        layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(8) }
-        setOnClickListener {
-            PresetBuilderDialog(this@MainActivity, preset, store) { renderScenes() }.show()
+    private fun presetRow(preset: Preset): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
+            background = cardShape()
+            foreground = selectableRipple()
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+            setOnClickListener {
+                PresetBuilderDialog(this@MainActivity, preset, store) { renderScenes() }.show()
+            }
         }
+
+        row.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            addView(TextView(this@MainActivity).apply {
+                text = preset.label
+                textSize = 15f
+                setTextColor(getColor(R.color.on_background))
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = getString(R.string.preset_row_subtitle, preset.slotCount)
+                textSize = 12f
+                setTextColor(getColor(R.color.on_background_secondary))
+                setPadding(0, dp(2), 0, 0)
+            })
+        })
+
+        row.addView(TextView(this).apply {
+            text = "›"
+            textSize = 20f
+            setTextColor(getColor(R.color.on_background_secondary))
+        })
+
+        return row
     }
 
     // --- Scenes: rename / delete ---
@@ -204,27 +241,67 @@ class MainActivity : AppCompatActivity(),
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(8), 0, dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(getColor(R.color.surface_variant))
+            }
+            setPadding(dp(16), dp(10), dp(10), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
         }
 
-        row.addView(TextView(this).apply {
-            text = getString(R.string.scene_row_format, scene.name, scene.windows.size)
-            textSize = 15f
-            layoutParams = LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
-            )
+        row.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            addView(TextView(this@MainActivity).apply {
+                text = scene.name
+                textSize = 15f
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(getColor(R.color.on_background))
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = getString(R.string.scene_row_subtitle, scene.windows.size)
+                textSize = 12f
+                setTextColor(getColor(R.color.on_background_secondary))
+                setPadding(0, dp(2), 0, 0)
+            })
         })
-        row.addView(Button(this).apply {
-            text = getString(R.string.rename_button)
-            isAllCaps = false
-            setOnClickListener { showRenameDialog(scene) }
-        })
-        row.addView(Button(this).apply {
-            text = getString(R.string.delete_button)
-            isAllCaps = false
-            setOnClickListener { confirmDelete(scene) }
-        })
+
+        row.addView(iconButton("✎", R.color.on_background_secondary) { showRenameDialog(scene) })
+        row.addView(iconButton("✕", R.color.danger) { confirmDelete(scene) })
         return row
+    }
+
+    /** A small round tap target used for the rename/delete actions on a scene row. */
+    private fun iconButton(glyph: String, colorRes: Int, onClick: () -> Unit): View = TextView(this).apply {
+        text = glyph
+        textSize = 16f
+        gravity = Gravity.CENTER
+        setTextColor(getColor(colorRes))
+        isClickable = true
+        isFocusable = true
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(getColor(R.color.surface))
+        }
+        foreground = selectableRipple()
+        val size = dp(36)
+        layoutParams = LinearLayout.LayoutParams(size, size).apply { marginStart = dp(6) }
+        setOnClickListener { onClick() }
+    }
+
+    private fun cardShape(): Drawable = GradientDrawable().apply {
+        cornerRadius = dp(12).toFloat()
+        setColor(getColor(R.color.surface_variant))
+    }
+
+    /** The theme's standard tap ripple, for views that draw their own background. */
+    private fun selectableRipple(): Drawable? {
+        val typedValue = TypedValue()
+        theme.resolveAttribute(android.R.attr.selectableItemBackground, typedValue, true)
+        return if (typedValue.resourceId != 0) getDrawable(typedValue.resourceId) else null
     }
 
     private fun showRenameDialog(scene: Scene) {

@@ -1,11 +1,11 @@
-package dev.atwm.tilingwm.engine
+package dev.lutergs.android_wm.engine
 
 import android.graphics.Rect
 import android.os.Handler
 import android.util.Log
-import dev.atwm.tilingwm.IWindowTilingService
-import dev.atwm.tilingwm.model.Scene
-import dev.atwm.tilingwm.model.SceneWindow
+import dev.lutergs.android_wm.IWindowTilingService
+import dev.lutergs.android_wm.model.Scene
+import dev.lutergs.android_wm.model.SceneWindow
 
 /**
  * Captures the current window arrangement into a [Scene], and restores one.

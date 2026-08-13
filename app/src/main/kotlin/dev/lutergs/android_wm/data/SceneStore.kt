@@ -1,9 +1,9 @@
-package dev.atwm.tilingwm.data
+package dev.lutergs.android_wm.data
 
 import android.content.Context
 import android.util.Log
-import dev.atwm.tilingwm.model.Scene
-import dev.atwm.tilingwm.model.SceneWindow
+import dev.lutergs.android_wm.model.Scene
+import dev.lutergs.android_wm.model.SceneWindow
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -20,6 +20,7 @@ class SceneStore(context: Context) {
         const val PREFS = "scenes"
         const val KEY = "all"
         const val KEY_AUTO_RESTORE = "auto_restore"
+        const val KEY_ROTATION_REFLOW = "rotation_reflow"
     }
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -32,6 +33,17 @@ class SceneStore(context: Context) {
     var autoRestoreEnabled: Boolean
         get() = prefs.getBoolean(KEY_AUTO_RESTORE, false)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_RESTORE, value).apply()
+
+    /**
+     * On by default: when the display rotates while a scene is active, its
+     * windows are reflowed to fit the new orientation. Unlike auto-restore this
+     * only ever reacts to an action the user just took (physically rotating the
+     * device), so it defaults on — but it's still a toggle, since a mid-rotation
+     * reflow is a visible, disruptive move that should be easy to turn off.
+     */
+    var rotationReflowEnabled: Boolean
+        get() = prefs.getBoolean(KEY_ROTATION_REFLOW, true)
+        set(value) = prefs.edit().putBoolean(KEY_ROTATION_REFLOW, value).apply()
 
     fun list(): List<Scene> = read()
 
