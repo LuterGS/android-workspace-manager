@@ -162,6 +162,7 @@ WindowTilingServiceImpl   Shizuku UserService (shell UID)
 | `wm shell desktopmode minimizeAll <displayId>` | 첫 단독 실행은 성공(화면이 실제로 깨끗해짐)했지만 **재현성이 없습니다.** `apply()`처럼 launch 직후 딜레이 없이 이어붙이면 실패, 나중엔 완전히 단독으로 호출해도(1.5초 대기 후에도) 실패. 정확히 어떤 desk 상태에서 통하는지 못 찾음 | 쓰지 마세요. `IWindowTilingService.minimizeTask(taskId)`가 개별 task를 대상으로 하며 신뢰할 수 있습니다 |
 | `com.samsung.android.multiwindow.IMultiTaskingBinder` | **`"activity_task"` 바인더를 그대로 재캐스팅해서 얻으려 하면 `SecurityException: Binder invocation to an incorrect interface`가 납니다** — 그 바인더는 `IActivityTaskManager`만 구현합니다. 네이티브 캡션바 `-` 버튼을 실제로 누르고 logcat을 지켜봐서 정확한 호출 경로(`IMultiTaskingBinder$Stub.onTransact` → `MultiTaskingBinder.minimizeTaskById` → `Task.moveTaskToBack`+`Task.setMinimized`)를 확인했고, `IActivityTaskManager`의 전체 메서드를 덤프해서 진짜 접근자를 찾음 | **정답은 `IActivityTaskManager.getMultiTaskingBinder(): IMultiTaskingBinder`** — 이미 연결되어 있는 `atm` 객체에서 바로 얻으면 됩니다. `WindowTilingServiceImpl.minimizeTask()`가 이걸 구현합니다 |
 | 디버그 서명 키 | **머신마다 `~/.android/debug.keystore`가 다르게(랜덤) 생성됨.** macOS에서 설치된 앱을 다른 머신에서 빌드한 APK로 `adb install -r` 하면 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 거부됨 | 이번엔 `adb uninstall` 후 재설치로 즉시 해결(사용자 선택, 10번 참고). **근본 해결(프로젝트 전용 debug 키스토어를 repo에 커밋)은 아직 안 함** |
+| release 빌드에서 Shizuku 권한은 잡히는데 `bindUserService()`가 조용히 실패 | **R8이 `WindowTilingServiceImpl`을 (예: `U.j` 식으로) 난독화·구조 변경함.** Shizuku의 UserService는 매니페스트 선언이 아니라 별도 프로세스(`moe.shizuku.starter.ServiceStarter`)에서 **순수 리플렉션**(`Class.newInstance()`)으로 이 클래스를 생성하는데, R8은 그 호출 경로를 볼 수 없어서 "안 쓰는 클래스"로 보고 마음대로 최적화함. 결과: `Shizuku.checkSelfPermission()`은 진짜로 granted를 반환하고 `bindUserService()` 호출도 되는데, `:tiling` 프로세스가 아예 안 뜨고 `logcat`에 `ShizukuServiceStarter: unable to start service .../U.j... java.lang.InstantiationException: java.lang.Class<U.j> cannot be instantiated`만 조용히 남음. **`MainActivity.bindUserService()`가 실제 바인딩 콜백을 기다리지 않고 낙관적으로 "Connected"/"Show Floating Widget" UI를 먼저 그려버리는 것도 겹쳐서, 화면만 보면 권한이 통과된 것처럼 보이는 게 더 헷갈리게 만듦** (이 UI 쪽은 아직 안 고침, 10번 참고). debug 빌드는 `isMinifyEnabled=false`라 원래 이 문제가 없어서, 지금까지(release CI를 구축한 세션 포함) 못 잡고 있었음 | `app/proguard-rules.pro` 신규 생성 + `build.gradle.kts`의 `proguardFiles()`에 연결. `WindowTilingServiceImpl`과 `IWindowTilingService`(+ 중첩 `Stub`)를 통째로 `-keep`. **로컬 서명 release 빌드 + 실기기 설치로 `:tiling` 프로세스가 즉시 뜨는 것까지 확인해 검증 완료** (2026-08-13) |
 
 또한 One UI에는 `Task{#7 name=Desk}` / `MinimizedDesk_7` 같은 **Desktop Windowing 컨테이너**가 있고 그 아래 앱들이 자식 task로 들어갑니다. 지금은 문제되지 않았지만, desk를 활성화한 상태에서 task를 훑을 때는 부모/자식 구분이 필요할 수 있습니다.
 
@@ -262,7 +263,7 @@ adb logcat -d | ggrep 'TilingWM'
 
 ### 2026-08-13 세션
 
-**기기가 연결되지 않은 상태로 진행 — 아래 전부 Docker 빌드(컴파일)까지만 확인했고, 실기기 동작 확인은 아직 안 됨.** 다음 세션에서 기기 연결되면 최우선으로 검증할 것 (10번 참고).
+처음엔 기기가 연결되지 않은 상태로 진행 — 아래 5개 항목은 Docker 빌드(컴파일)까지만 확인하고 커밋·푸시·릴리즈까지 했었음. **그 후 같은 세션 안에서 기기가 연결되어 실기기 검증을 시작**했고, 그 과정에서 release 빌드가 사실상 완전히 안 되는 버그를 하나 발견해서 고침 (아래 마지막 항목, 10번의 0/1항목도 참고).
 
 `assembleDebug` **BUILD SUCCESSFUL** (기존에도 있던, 무관한 `kotlinOptions` deprecation 경고 하나 외엔 에러/경고 없음).
 
@@ -274,6 +275,7 @@ adb logcat -d | ggrep 'TilingWM'
 - ✅ **신규 프리셋 6개**: `SplitLayout`(신규 `LayoutStrategy`) 추가 — `MasterStackLayout`과 달리 방향과 무관하게 분할 축이 고정됨(가로 화면에서도 좌/우 유지). 좌우 2분할 / 좌우+우측 상하분할(3개) / 좌우+좌측 상하분할(3개) / 균등 2×2(4개) / 상하+상단 좌우분할(3개) / 상하+하단 좌우분할(3개). 기존 4개(`even-2`/`master-2`/`master-3`/`master-4`)는 그대로 유지 — 사용자가 "추가"라고 명시했으므로 교체 아님.
 - ✅ **플로팅 위젯 패널 반응형화**: 기존엔 `rowCount * dp(48)` 식 수동 추정 높이였음(버튼 높이를 두 곳에 중복 하드코딩하는 취약한 구조) → `MaxHeightScrollView`(`onMeasure`를 `AT_MOST`로 캡핑하는 작은 `ScrollView` 서브클래스) + `WindowManager.LayoutParams.WRAP_CONTENT`로 교체. 콘텐츠가 적으면 패널이 짧아지고, 최대 높이(`PANEL_MAX_HEIGHT_DP`)를 넘으면 그때부터 스크롤 — 실제 콘텐츠 기준. 부수적으로 scene 이름이 길 때 `ellipsize`로 잘리게 함 (이전엔 버튼 높이가 고정이라 긴 이름이 어색하게 잘려 보일 수 있었음).
 - ✅ **전체 UI 비주얼 개선**: `colors.xml` + `values-night/colors.xml`(다크 대응) / `themes.xml`(`Theme.TilingWM` — primary/accent 컬러, 버튼 스타일 2종) 신규 추가. `activity_main.xml`을 카드 3개(Connection / Presets / Saved Layouts) 구조로 재구성. preset·scene 목록 행을 plain `Button`에서 라운드 카드(제목+부제 2줄, preset은 `›` 화살표, scene은 ✎/✕ 아이콘 버튼)로 교체. `PresetBuilderDialog`의 버튼들도 같은 스타일 리소스를 재사용(`Button(activity, null, 0, styleRes)` — 코드로 만드는 View에 XML 스타일을 입히는 표준적인 4-인자 생성자 패턴). **앱 아이콘 추가** — adaptive icon(`mipmap-anydpi-v26`만, minSdk 33이라 레거시 밀도별 fallback 불필요), master+stack 배치를 형상화한 벡터 글리프.
+- ✅ **[실기기에서 발견] release 빌드에서 Shizuku UserService가 전혀 안 뜨는 버그 수정** — `v0.1.0` release APK를 실기기에 설치해 테스트하던 중 사용자가 "권한을 줬는데도 확인이 안 된다"고 리포트. `adb`로 라이브 디버깅해서 R8이 `WindowTilingServiceImpl`을 난독화해 Shizuku의 리플렉션 기반 인스턴스화가 깨지는 게 근본 원인임을 확인 (`logcat`에서 `InstantiationException: java.lang.Class<U.j> cannot be instantiated` 직접 확인, 5번 표 새 항목 참고). `app/proguard-rules.pro` 신설 + `-keep`으로 수정하고, 로컬에서 서명된 release APK를 다시 빌드해 **실기기에 설치해서 `:tiling` 프로세스가 정상적으로 뜨는 것까지 확인 완료**. 이 과정에서 `dev.atwm.tilingwm:tiling`이라는 orphan 프로세스(구버전 앱, 이미 언인스톨됨)가 shell UID로 계속 떠 있는 것도 발견해서 정리함 (재현에는 영향 없었던 것으로 확인).
 
 ---
 
@@ -294,15 +296,14 @@ adb logcat -d | ggrep 'TilingWM'
 
 ## 10. 남은 것 / 알려진 이슈
 
-0. **[최우선] 2026-08-13 세션 변경사항이 전부 실기기 미검증입니다** (8번의 해당 날짜 항목 참고) — 기기가 연결 안 된 채로 진행해서 Docker 컴파일만 확인했습니다. 다음 세션에서 기기가 연결되면 가장 먼저:
-   - `dev.lutergs.android_wm`으로 재설치가 실제로 되는지, 그리고 구버전(`dev.atwm.tilingwm`)이 남아있다면 둘이 충돌 없이 공존하는지 (또는 사용자가 구버전을 지우길 원하는지)
-   - 회전 재배치 on/off 스위치가 실제로 동작을 껐다 켰다 하는지
-   - 신규 프리셋 6개가 화면에 올바른 좌표로 배치되는지 (특히 2×2 균등분할과, 상/하 분할 계열 — `SplitLayout`은 이번에 새로 짠 좌표 계산이라 `MasterStackLayout`만큼 실전 검증이 안 됨)
-   - 위젯 패널이 scene 개수에 따라 실제로 반응형으로 줄었다 늘었다 하는지
-   - 카드 UI·다크모드 배색·앱 아이콘이 실제로 의도대로 보이는지 (색상 대비, 라운드 코너 렌더링 등은 코드만으로는 확신 불가)
-1. **디버그 서명 키가 머신마다 다름** (5번 표 참고). macOS와 이 세션의 Linux 환경을 번갈아 쓰면 `adb install -r`이 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 계속 막힐 수 있습니다. 근본 해결책은 프로젝트 전용 debug keystore를 만들어 `app/build.gradle.kts`의 `signingConfigs.debug`에 지정하고 repo에 커밋하는 것 — 다음에 이 문제가 또 나오면 사용자에게 제안하세요. (release 서명 키와는 별개 — 9번 참고)
-2. **자동 재배치의 실제 트리거가 미검증** (7번 참고). scene을 로드하고, 그 안의 앱 하나를 force-stop한 뒤 재실행해서 정말 제자리로 돌아오는지 확인 필요.
-3. `PresetBuilderDialog`의 앱 선택기는 label만 보여주고 검색/필터가 없습니다 — 설치 앱이 아주 많아지면 (지금 기기엔 이미 수십 개) 스크롤이 길어집니다. 문제 제기 없었으니 선제 작업은 안 했습니다.
+0. **[최우선, 일부 해결] 2026-08-13 세션 변경사항 실기기 검증** — 기기 연결 후 진행한 항목:
+   - ✅ `dev.lutergs.android_wm` 재설치 확인 (구버전 `dev.atwm.tilingwm`은 이 기기에 아예 안 깔려있어서 공존 문제 자체가 없었음 — 다만 구버전 시절의 orphan `:tiling` shell 프로세스가 하나 남아있던 건 발견해서 정리함)
+   - ✅ **release 빌드에서 Shizuku 연결이 전혀 안 되던 심각한 버그 발견 + 수정 + 실기기 검증까지 완료** — 5번 표의 새 항목 참고. `PresetBuilderDialog`/프리셋 UI가 화면에 정상적으로 그려지는 것도 이 과정에서 스크린샷으로 확인됨(카드 UI, 다크/라이트는 아니지만 최소 라이트 배색은 실물로 봄)
+   - ⬜ 아직 못 본 것: 회전 재배치 on/off 스위치가 실제로 동작을 껐다 켰다 하는지, 신규 프리셋 6개(특히 `SplitLayout` 좌표 계산)가 화면에 정확히 배치되는지, 위젯 패널 반응형 크기, 다크모드 배색, 앱 아이콘 실물
+1. **`MainActivity.bindUserService()`가 실제 바인딩 콜백(`ShizukuServiceConnection.onServiceConnected`)을 기다리지 않고, 호출 직후 낙관적으로 "Connected"/"Show Floating Widget" UI를 그려버립니다.** 이번엔 진짜 원인(R8 난독화)이 있어서 드러났지만, 그 원인 때문에 이 UI 버그도 같이 헷갈림을 키웠습니다 — 화면만 보면 항상 "연결 성공"처럼 보이고, 바인딩이 실제로 실패해도(이번 케이스든 다른 이유로든) 아무 피드백이 없습니다. `serviceConnection.isConnected`를 실제로 관찰(짧은 폴링이나 콜백 기반 상태 갱신)해서 UI에 반영하는 게 근본 수정 — 아직 안 고침.
+2. **디버그 서명 키가 머신마다 다름** (5번 표 참고). macOS와 이 세션의 Linux 환경을 번갈아 쓰면 `adb install -r`이 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 계속 막힐 수 있습니다. 근본 해결책은 프로젝트 전용 debug keystore를 만들어 `app/build.gradle.kts`의 `signingConfigs.debug`에 지정하고 repo에 커밋하는 것 — 다음에 이 문제가 또 나오면 사용자에게 제안하세요. (release 서명 키와는 별개 — 9번 참고)
+3. **자동 재배치의 실제 트리거가 미검증** (7번 참고). scene을 로드하고, 그 안의 앱 하나를 force-stop한 뒤 재실행해서 정말 제자리로 돌아오는지 확인 필요.
+4. `PresetBuilderDialog`의 앱 선택기는 label만 보여주고 검색/필터가 없습니다 — 설치 앱이 아주 많아지면 (지금 기기엔 이미 수십 개) 스크롤이 길어집니다. 문제 제기 없었으니 선제 작업은 안 했습니다.
 
 ---
 
