@@ -1,0 +1,32 @@
+name: Build Check
+
+# main에 push되거나 main을 향한 PR이 열릴 때마다 assembleDebug가 실제로 도는지만
+# 확인한다. release.yml(서명된 release 빌드, 수동 트리거)과 달리 이건 시크릿이
+# 전혀 필요 없는 debug 빌드라 항상 돌아간다 — 컴파일 깨짐을 사람이 로컬/Docker로
+# 매번 직접 확인하지 않아도 되게 하려는 용도.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.4.0"
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon

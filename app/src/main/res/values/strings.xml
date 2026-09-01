@@ -7,6 +7,8 @@
     <string name="permission_required">Shizuku permission required.</string>
     <string name="permission_denied">Permission denied. Tap to retry.</string>
     <string name="connected">Connected to Shizuku. Enable the Accessibility Service, then show the floating widget to save or restore a layout.</string>
+    <string name="connecting">Connecting to the Shizuku service…</string>
+    <string name="connection_failed">Couldn\'t connect to the Shizuku service. Tap to retry.</string>
     <string name="grant_permission">Grant Permission</string>
     <string name="show_widget">Show Floating Widget</string>
     <string name="hide_widget">Hide Floating Widget</string>

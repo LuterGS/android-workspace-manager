@@ -280,7 +280,18 @@ adb logcat -d | ggrep 'TilingWM'
 - ✅ **[실기기에서 발견, v0.1.1] 위젯 패널이 puck을 가리는 문제 + edge-to-edge 상태바 침범 문제 수정**:
   - `FloatingWidget.expand()`가 항상 puck 오른쪽 고정 좌표에 패널을 띄우던 걸, `windowManager.currentWindowMetrics.bounds` 기준으로 오른쪽에 공간이 없으면 왼쪽으로 여는 flip 로직 + 수직 클램프로 교체. **실기기에서 puck을 화면 오른쪽 끝까지 드래그(`adb shell input swipe`, duration을 1500ms 이상으로 줘야 중간 MOVE 이벤트가 충분히 들어가서 실제 드래그로 인식됨 — 300ms는 거의 안 움직임)한 뒤 탭해서, 패널이 왼쪽으로 열리고 puck이 안 가려지는 것까지 스크린샷으로 확인.**
   - `targetSdk 35`(Android 15) edge-to-edge 강제 적용 때문에 상태바를 침범하던 것을, `MainActivity`에 `ViewCompat.setOnApplyWindowInsetsListener`로 `systemBars()` 인셋을 루트 `ScrollView`(`@id/root_scroll`) 패딩에 반영해서 수정. **실기기 스크린샷으로 상태바/ActionBar 분리 확인.**
-  - **디버깅 중 만난 red herring**: 이 두 수정을 넣은 release APK를 `adb install -r`로 갱신했더니 위젯이 아예 안 떴음(권한도 잡히고 `bindUserService()`도 불리는데 `:tiling`도 아니고 접근성 오버레이도 전혀 안 생김, 로그도 전무). 원인 조사에 상당한 시간을 씀 — 결국 `adb uninstall` 후 **완전히 새로 설치**하니 바로 해결됨. 즉 **코드 문제가 아니라, 이미 떠 있는 프로세스 위에 반복적으로 `install -r`을 갈아끼우면서 뭔가 꼬인 상태**였던 것으로 보임 (logcat에 `Package [...] reported as REPLACED, but missing application info. Assuming REMOVED` 라인이 관찰됨). **다음에 "코드는 멀쩡해 보이는데 뭔가 조용히 안 될 때"는 재설치를 의심하기 전에 `adb uninstall` 후 완전 재설치부터 시도해볼 것.** (5번 표에도 추가함)
+  - **디버깅 중 만난 red herring**: 이 두 수정을 넣은 release APK를 `adb install -r`로 갱신했더니 위젯이 아예 안 떴음(권한도 잡히고 `bindUserService()`도 불리는데 `:tiling`도 아니고 접근성 오버레이도 전혀 안 생김, 로그도 전무). 원인 조사에 상당한 시간을 씀 — 결국 `adb uninstall` 후 **완전히 새로 설치**하니 바로 해결됨. 즉 **코드 문제가 아니라, 이미 떠 있는 프로세스 위에 반복적으로 `install -r`을 갈아끼우면서 뭔가 꼬인 상태**였던 것으로 보임 (logcat에 `Package [...] reported as REPLACED, but missing application info. Assuming REMOVED` 라인이 동반됨). **다음에 "코드는 멀쩡해 보이는데 뭔가 조용히 안 될 때"는 재설치를 의심하기 전에 `adb uninstall` 후 완전 재설치부터 시도해볼 것.** (5번 표에도 추가함)
+
+### 2026-09-01 세션
+
+`v0.1.1` 태그 릴리즈(이전 세션이 만들어둔 수정분)를 마무리한 뒤, 사용자가 고른 개선 3개를 추가함. **기기가 연결되지 않은 상태로 진행 — 전부 Docker 컴파일 확인까지만 됐고 실기기 검증은 안 됨.**
+
+- ✅ **CI: push마다 컴파일 검증** — `.github/workflows/build-check.yml` 신규 추가. `main` push/PR마다 시크릿 없이 `assembleDebug`만 돎(`release.yml`은 여전히 `workflow_dispatch` 수동, 서명 필요). 지금까지 이 저장소는 릴리즈 때만 빌드가 검증됐고 평소 push는 사람이 로컬/Docker로 직접 빌드해서 확인해왔음 — 이제 자동으로 잡힘.
+- ✅ **연결 상태 UI가 실제 바인딩을 반영하지 않던 버그 수정** (HANDOFF §10-1이었던 항목) — `bindUserService()`가 `Shizuku.bindUserService()` 호출 직후 낙관적으로 "Connected" UI를 그리던 걸 없앰. `ShizukuServiceConnection`에 `onConnectionChanged` 콜백을 추가해서 `onServiceConnected`/`onServiceDisconnected`가 실제로 불릴 때만 UI(`MainActivity.updateConnectionUi()`)가 갱신되도록 함. 5초 타임아웃도 추가(`BIND_TIMEOUT_MS`) — 바인딩이 영영 콜백을 안 주는 경우(이번에 R8 버그로 실제 겪었던 상황) "Connecting…"에 무한정 머무르지 않고 재시도 버튼이 뜸. `MainActivity`가 죽어도 `serviceConnection`은 `TilingAccessibilityService`의 static 참조로 살아남으므로, `onDestroy()`에서 `onConnectionChanged`를 `null`로 비워서 죽은 Activity를 계속 붙잡지 않게 함. **실기기 미검증 — 특히 타임아웃 UI, 재시도 버튼 동작은 다음 세션에서 확인 필요.**
+- ✅ **위젯 편의성 2가지**:
+  - **puck 위치 기억**: `FloatingWidget`에 `SharedPreferences("widget")` 추가, 드래그가 끝날 때마다(`ACTION_UP`, `dragged=true`인 경우) 좌표 저장. `addPuck()`은 저장된 좌표가 있으면 그걸 쓰고 없으면 기존 기본값(`12dp, 160dp`). 이전엔 서비스가 재시작될 때마다(접근성 껐다 켬, 프로세스 킬 등) 항상 기본 위치로 리셋됐음.
+  - **on/off 상태가 재부팅 후에도 유지**: `SceneStore.widgetEnabled`(새 boolean, 다른 토글들과 같은 패턴) 추가. `MainActivity.toggleWidget()`이 사용자가 누를 때마다 이걸 씀. `TilingAccessibilityService.onServiceConnected()`가 기존엔 항상 메모리상의 `isEnabled`(매 프로세스마다 `false`로 시작)를 그대로 적용했는데, 이제 `isEnabled = store.widgetEnabled`로 바꿔서 서비스가 (재부팅 등으로) 새로 붙을 때마다 마지막으로 남겨둔 on/off 상태를 스스로 복원함.
+  - **실기기 미검증** — 둘 다 코드 로직은 단순하지만, 재부팅 시나리오 자체를 이 세션에서 못 만들어봤음.
 
 ---
 
@@ -301,14 +312,16 @@ adb logcat -d | ggrep 'TilingWM'
 
 ## 10. 남은 것 / 알려진 이슈
 
-0. **[최우선, 일부 해결] 2026-08-13 세션 변경사항 실기기 검증** — 기기 연결 후 진행한 항목:
-   - ✅ `dev.lutergs.android_wm` 재설치 확인 (구버전 `dev.atwm.tilingwm`은 이 기기에 아예 안 깔려있어서 공존 문제 자체가 없었음 — 다만 구버전 시절의 orphan `:tiling` shell 프로세스가 하나 남아있던 건 발견해서 정리함)
-   - ✅ **release 빌드에서 Shizuku 연결이 전혀 안 되던 심각한 버그 발견 + 수정 + 실기기 검증까지 완료** — 5번 표의 새 항목 참고. `PresetBuilderDialog`/프리셋 UI가 화면에 정상적으로 그려지는 것도 이 과정에서 스크린샷으로 확인됨(카드 UI, 다크/라이트는 아니지만 최소 라이트 배색은 실물로 봄)
-   - ⬜ 아직 못 본 것: 회전 재배치 on/off 스위치가 실제로 동작을 껐다 켰다 하는지, 신규 프리셋 6개(특히 `SplitLayout` 좌표 계산)가 화면에 정확히 배치되는지, 위젯 패널 반응형 크기, 다크모드 배색, 앱 아이콘 실물
-1. **`MainActivity.bindUserService()`가 실제 바인딩 콜백(`ShizukuServiceConnection.onServiceConnected`)을 기다리지 않고, 호출 직후 낙관적으로 "Connected"/"Show Floating Widget" UI를 그려버립니다.** 이번엔 진짜 원인(R8 난독화)이 있어서 드러났지만, 그 원인 때문에 이 UI 버그도 같이 헷갈림을 키웠습니다 — 화면만 보면 항상 "연결 성공"처럼 보이고, 바인딩이 실제로 실패해도(이번 케이스든 다른 이유로든) 아무 피드백이 없습니다. `serviceConnection.isConnected`를 실제로 관찰(짧은 폴링이나 콜백 기반 상태 갱신)해서 UI에 반영하는 게 근본 수정 — 아직 안 고침.
-2. **디버그 서명 키가 머신마다 다름** (5번 표 참고). macOS와 이 세션의 Linux 환경을 번갈아 쓰면 `adb install -r`이 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 계속 막힐 수 있습니다. 근본 해결책은 프로젝트 전용 debug keystore를 만들어 `app/build.gradle.kts`의 `signingConfigs.debug`에 지정하고 repo에 커밋하는 것 — 다음에 이 문제가 또 나오면 사용자에게 제안하세요. (release 서명 키와는 별개 — 9번 참고)
+0. **[최우선] 2026-09-01 세션 변경사항 전부 실기기 미검증** — 기기 미연결 상태로 진행, Docker 컴파일만 확인:
+   - 연결 상태 UI(`updateConnectionUi()`, 5초 타임아웃, 재시도 버튼)가 정말 의도대로 동작하는지
+   - 위젯 puck 위치가 드래그 후 서비스 재시작(접근성 껐다 켬 등)에도 유지되는지
+   - 위젯 on/off 상태가 기기 재부팅 후에도 유지되는지 — 이건 재부팅 자체를 시켜봐야 확인 가능
+   - `.github/workflows/build-check.yml`이 실제로 GitHub에서 정상 트리거되는지 (다음 push 때 Actions 탭에서 확인)
+1. **[해결, 위 항목 참고]** ~~`MainActivity.bindUserService()`가 실제 바인딩 콜백을 기다리지 않고 낙관적으로 UI를 그리는 문제~~ — `ShizukuServiceConnection.onConnectionChanged` 콜백 기반으로 재작성함. 실기기 검증만 남음.
+2. **디버그 서명 키가 머신마다 다름** (5번 표 참고). macOS와 이 세션의 Linux 환경을 번갈아 쓰면 `adb install -r`이 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`로 계속 막힐 수 있습니다. 근본 해결책은 프로젝트 전용 debug keystore를 만들어 `app/build.gradle.kts`의 `signingConfigs.debug`에 지정하고 repo에 커밋하는 것 — 다음에 이 문제가 또 나오면 사용자에게 제안하세요. (release 서명 키와는 별개 — 9번 참고) **2026-09-01 세션에서 사용자에게 제안했으나 이번 배치엔 포함 안 함 — 여전히 미해결.**
 3. **자동 재배치의 실제 트리거가 미검증** (7번 참고). scene을 로드하고, 그 안의 앱 하나를 force-stop한 뒤 재실행해서 정말 제자리로 돌아오는지 확인 필요.
 4. `PresetBuilderDialog`의 앱 선택기는 label만 보여주고 검색/필터가 없습니다 — 설치 앱이 아주 많아지면 (지금 기기엔 이미 수십 개) 스크롤이 길어집니다. 문제 제기 없었으니 선제 작업은 안 했습니다.
+5. `WindowTilingServiceImpl.getVisibleTaskInfo()`/`getVisibleTaskPackages()`를 `MultiWindowManager.getVisibleTasks()`로 단순화할 여지 있음 (§4의 "덤으로 발견한 것" 참고 — 실제 호출까지 검증됐으나 아직 안 씀).
 
 ---
 

@@ -12,11 +12,20 @@ class ShizukuServiceConnection : ServiceConnection {
     val isConnected: Boolean
         get() = service != null
 
+    /**
+     * Notified whenever [service] actually changes. bindUserService() itself returns
+     * before the bind completes, so anyone showing "connected" UI needs this rather
+     * than assuming the call succeeded the moment it was made (see MainActivity).
+     */
+    var onConnectionChanged: (() -> Unit)? = null
+
     override fun onServiceConnected(name: ComponentName, binder: IBinder) {
         service = IWindowTilingService.Stub.asInterface(binder)
+        onConnectionChanged?.invoke()
     }
 
     override fun onServiceDisconnected(name: ComponentName) {
         service = null
+        onConnectionChanged?.invoke()
     }
 }

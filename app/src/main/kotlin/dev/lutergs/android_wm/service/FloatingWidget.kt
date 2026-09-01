@@ -44,9 +44,14 @@ class FloatingWidget(
         const val PANEL_MAX_HEIGHT_DP = 320
         /** Movement beyond this is a drag, not a tap. */
         const val TAP_SLOP_DP = 8
+
+        const val PREFS = "widget"
+        const val KEY_PUCK_X = "puck_x"
+        const val KEY_PUCK_Y = "puck_y"
     }
 
     private val windowManager = context.getSystemService(WindowManager::class.java)
+    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private var puck: View? = null
     private var puckParams: WindowManager.LayoutParams? = null
@@ -88,8 +93,10 @@ class FloatingWidget(
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(12)
-            y = dp(160)
+            // Wherever it was last dragged to, so hide/show (or a service restart)
+            // doesn't reset it back to a corner every time.
+            x = prefs.getInt(KEY_PUCK_X, dp(12))
+            y = prefs.getInt(KEY_PUCK_Y, dp(160))
         }
 
         val view = TextView(context).apply {
@@ -150,7 +157,7 @@ class FloatingWidget(
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!dragged) togglePanel()
+                    if (!dragged) togglePanel() else savePuckPosition(params)
                     true
                 }
 
@@ -158,6 +165,10 @@ class FloatingWidget(
                 else -> false
             }
         }
+    }
+
+    private fun savePuckPosition(params: WindowManager.LayoutParams) {
+        prefs.edit().putInt(KEY_PUCK_X, params.x).putInt(KEY_PUCK_Y, params.y).apply()
     }
 
     // --- Panel ---

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
 import android.text.TextUtils
@@ -44,9 +46,12 @@ class MainActivity : AppCompatActivity(),
 
     companion object {
         private const val REQUEST_CODE = 1
+        /** How long to wait for bindUserService() before showing a retry option. */
+        private const val BIND_TIMEOUT_MS = 5000L
     }
 
     private val serviceConnection = ShizukuServiceConnection()
+    private val handler = Handler(Looper.getMainLooper())
     private var widgetVisible = false
 
     private lateinit var store: SceneStore
@@ -140,13 +145,57 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    /**
+     * bindUserService() itself returns immediately — the actual bind happens
+     * asynchronously and used to be assumed successful right here, which meant the
+     * UI said "Connected" even when the bind silently failed (this is exactly how
+     * the R8-stripped-the-service bug went unnoticed for so long; see HANDOFF §10).
+     * Now the UI only reflects [ShizukuServiceConnection.isConnected] once it
+     * actually changes, via [ShizukuServiceConnection.onConnectionChanged], with a
+     * timeout so a bind that never calls back still gets a retry option instead of
+     * hanging on "Connecting…" forever.
+     */
     private fun bindUserService() {
         val args = Shizuku.UserServiceArgs(
             ComponentName(packageName, WindowTilingServiceImpl::class.java.name)
         ).daemon(false).processNameSuffix("tiling").version(BuildConfig.VERSION_CODE)
 
+        serviceConnection.onConnectionChanged = {
+            runOnUiThread {
+                handler.removeCallbacksAndMessages(null) // the timeout below, if still pending
+                updateConnectionUi()
+            }
+        }
         Shizuku.bindUserService(args, serviceConnection)
         TilingAccessibilityService.serviceConnection = serviceConnection
+
+        if (serviceConnection.isConnected) {
+            // Already bound from an earlier visit to this screen — no callback is
+            // coming for a bind that already completed, so reflect it right away.
+            updateConnectionUi()
+            return
+        }
+
+        statusText.text = getString(R.string.connecting)
+        actionButton.visibility = View.GONE
+        accessibilityButton.visibility = View.GONE
+        // If nothing has connected by the timeout, updateConnectionUi() falls through
+        // to its "still not connected" branch and offers a retry — self-correcting if
+        // the bind actually does succeed a little later than that.
+        handler.postDelayed({ updateConnectionUi() }, BIND_TIMEOUT_MS)
+    }
+
+    /** Reflects the service connection's actual current state — called once it's known,
+     *  never assumed ahead of time. */
+    private fun updateConnectionUi() {
+        if (!serviceConnection.isConnected) {
+            statusText.text = getString(R.string.connection_failed)
+            actionButton.text = getString(R.string.retry)
+            actionButton.setOnClickListener { checkShizukuState() }
+            actionButton.visibility = View.VISIBLE
+            accessibilityButton.visibility = View.GONE
+            return
+        }
 
         // The service may already be running the widget from a previous visit here —
         // reflect its real state rather than assuming it's off.
@@ -162,6 +211,7 @@ class MainActivity : AppCompatActivity(),
     private fun toggleWidget() {
         widgetVisible = !widgetVisible
         TilingAccessibilityService.isEnabled = widgetVisible
+        store.widgetEnabled = widgetVisible
         actionButton.text = getString(if (widgetVisible) R.string.hide_widget else R.string.show_widget)
     }
 
@@ -195,6 +245,11 @@ class MainActivity : AppCompatActivity(),
         Shizuku.removeRequestPermissionResultListener(this)
         Shizuku.removeBinderReceivedListener(this)
         Shizuku.removeBinderDeadListener(this)
+        handler.removeCallbacksAndMessages(null)
+        // serviceConnection outlives this Activity (TilingAccessibilityService holds a
+        // static reference to it), so drop the callback rather than let it keep this
+        // destroyed Activity reachable.
+        serviceConnection.onConnectionChanged = null
         super.onDestroy()
     }
 

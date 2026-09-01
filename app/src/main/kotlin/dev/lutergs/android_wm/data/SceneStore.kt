@@ -21,6 +21,7 @@ class SceneStore(context: Context) {
         const val KEY = "all"
         const val KEY_AUTO_RESTORE = "auto_restore"
         const val KEY_ROTATION_REFLOW = "rotation_reflow"
+        const val KEY_WIDGET_ENABLED = "widget_enabled"
     }
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -44,6 +45,16 @@ class SceneStore(context: Context) {
     var rotationReflowEnabled: Boolean
         get() = prefs.getBoolean(KEY_ROTATION_REFLOW, true)
         set(value) = prefs.edit().putBoolean(KEY_ROTATION_REFLOW, value).apply()
+
+    /**
+     * Whether the floating widget should be showing. Persisted so it comes back on
+     * its own after the accessibility service's process restarts (device reboot,
+     * the service being re-enabled, …) instead of silently staying hidden until the
+     * user reopens MainActivity and taps Show again.
+     */
+    var widgetEnabled: Boolean
+        get() = prefs.getBoolean(KEY_WIDGET_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_WIDGET_ENABLED, value).apply()
 
     fun list(): List<Scene> = read()
 

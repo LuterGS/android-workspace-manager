@@ -79,7 +79,11 @@ class TilingAccessibilityService : AccessibilityService(), FloatingWidget.Callba
         scenes = SceneManager({ serviceConnection?.service }, handler)
         widget = FloatingWidget(this, this)
         lastOrientation = resources.configuration.orientation
-        applyEnabledState()
+        // Restores whatever on/off state the widget was last left in, so a reboot or
+        // a service restart doesn't silently leave it hidden until MainActivity is
+        // reopened. Going through the isEnabled setter (not calling applyEnabledState()
+        // directly) keeps this the single place that decision is made.
+        isEnabled = store.widgetEnabled
     }
 
     /**
