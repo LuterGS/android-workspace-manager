@@ -12,8 +12,8 @@ android {
         applicationId = "dev.lutergs.android_wm"
         minSdk = 33
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
     }
 
     // Only present when RELEASE_KEYSTORE_PATH is set (CI, via secrets — see

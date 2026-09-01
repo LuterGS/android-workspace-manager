@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -37,6 +38,7 @@ class FloatingWidget(
     }
 
     private companion object {
+        const val TAG = "TilingWM"
         const val PUCK_DP = 52
         const val PANEL_WIDTH_DP = 220
         const val PANEL_MAX_HEIGHT_DP = 320
@@ -103,10 +105,12 @@ class FloatingWidget(
         }
 
         attachDragAndTap(view, params)
-        runCatching { windowManager.addView(view, params) }.onSuccess {
-            puck = view
-            puckParams = params
-        }
+        runCatching { windowManager.addView(view, params) }
+            .onSuccess {
+                puck = view
+                puckParams = params
+            }
+            .onFailure { e -> Log.e(TAG, "failed to add puck", e) }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -217,19 +221,41 @@ class FloatingWidget(
         // here re-deriving their heights.
         val scroller = MaxHeightScrollView(context, dp(PANEL_MAX_HEIGHT_DP)).apply { addView(content) }
 
+        val panelWidth = dp(PANEL_WIDTH_DP)
+        val panelMaxHeight = dp(PANEL_MAX_HEIGHT_DP)
+        val gap = dp(8)
+        val puckSize = dp(PUCK_DP)
+        val screen = windowManager.currentWindowMetrics.bounds
+
+        // Prefer opening to the right of the puck; flip to its left if there's
+        // not enough room (e.g. the puck was dragged near the right edge).
+        // FLAG_NOT_FOCUSABLE still lets the panel consume touches within its own
+        // bounds, so if it ever lands on top of the puck, the puck becomes
+        // untappable until something else (like a drag) closes the panel.
+        val x = if (anchor.x + puckSize + gap + panelWidth <= screen.right) {
+            anchor.x + puckSize + gap
+        } else {
+            (anchor.x - gap - panelWidth).coerceAtLeast(screen.left)
+        }
+        // Clamp vertically too, so a puck sitting low on screen doesn't push the
+        // panel's bottom edge off-screen.
+        val y = anchor.y.coerceAtMost((screen.bottom - panelMaxHeight).coerceAtLeast(screen.top))
+
         val params = WindowManager.LayoutParams(
-            dp(PANEL_WIDTH_DP),
+            panelWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = anchor.x + dp(PUCK_DP + 8)
-            y = anchor.y
+            this.x = x
+            this.y = y
         }
 
-        runCatching { windowManager.addView(scroller, params) }.onSuccess { panel = scroller }
+        runCatching { windowManager.addView(scroller, params) }
+            .onSuccess { panel = scroller }
+            .onFailure { e -> Log.e(TAG, "failed to add panel", e) }
     }
 
     /** A ScrollView that wraps its content up to [maxHeightPx], then scrolls. */

@@ -20,6 +20,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import dev.lutergs.android_wm.data.SceneStore
 import dev.lutergs.android_wm.engine.Preset
 import dev.lutergs.android_wm.engine.Presets
@@ -60,6 +62,7 @@ class MainActivity : AppCompatActivity(),
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        applyEdgeToEdgeInsets()
 
         store = SceneStore(this)
 
@@ -93,6 +96,22 @@ class MainActivity : AppCompatActivity(),
     private fun dp(value: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics
     ).toInt()
+
+    /**
+     * Android 15+ (targetSdk 35) enforces edge-to-edge: without this, content
+     * draws behind the system bars and the ActionBar visibly runs into the
+     * status bar. Pads the root around the existing 16dp card padding so cards
+     * still clear the status/nav bars (and any cutout) on every side.
+     */
+    private fun applyEdgeToEdgeInsets() {
+        val root = findViewById<View>(R.id.root_scroll)
+        val extraBottom = dp(24)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
+            val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom + extraBottom)
+            windowInsets
+        }
+    }
 
     // --- Shizuku connection flow ---
 
